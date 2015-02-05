@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -73,6 +73,7 @@ struct ipc_command {
  */
 typedef struct {
     struct ipc_command cmd;
+    int64_t txnId;
     int64_t spHandle;
     int64_t lastCommittedSpHandle;
     int64_t uniqueId;
@@ -93,9 +94,12 @@ typedef struct {
 typedef struct {
     struct ipc_command cmd;
     int32_t tableId;
+    int64_t txnId;
     int64_t spHandle;
     int64_t lastCommittedSpHandle;
     int64_t undoToken;
+    int32_t undo;
+    int32_t shouldDRStream;
     char data[0];
 }__attribute__((packed)) load_table_cmd;
 
@@ -110,17 +114,6 @@ typedef struct {
     int32_t num_locators;
     int32_t locators[0];
 }__attribute__((packed)) get_stats_cmd;
-
-/*
- * Header for a saveTableToDisk request
- */
-typedef struct {
-    struct ipc_command cmd;
-    int32_t clusterId;
-    int32_t databaseId;
-    int32_t tableId;
-    char data[0];
-}__attribute__((packed)) save_table_to_disk_cmd;
 
 struct undo_token {
     struct ipc_command cmd;
@@ -235,7 +228,7 @@ static VoltDBIPC *currentVolt = NULL;
 /**
  * Utility used for deserializing ParameterSet passed from Java.
  */
-void deserializeParameterSetCommon(int cnt, ReferenceSerializeInput &serialize_in,
+void deserializeParameterSetCommon(int cnt, ReferenceSerializeInputBE &serialize_in,
                                    NValueArray &params, Pool *stringPool)
 {
     for (int i = 0; i < cnt; ++i) {
@@ -589,7 +582,7 @@ void VoltDBIPC::executePlanFragments(struct ipc_command *cmd) {
     // ...and fast serialized parameter sets last.
     void* offset = queryCommand->data + (sizeof(int64_t) * numFrags * 2);
     int sz = static_cast<int> (ntohl(cmd->msgsize) - sizeof(querypfs) - sizeof(int32_t) * ntohl(queryCommand->numFragmentIds));
-    ReferenceSerializeInput serialize_in(offset, sz);
+    ReferenceSerializeInputBE serialize_in(offset, sz);
 
     // and reset to space for the results output
     m_engine->resetReusedResultOutputBuffer(1);//1 byte to add status code
@@ -599,6 +592,7 @@ void VoltDBIPC::executePlanFragments(struct ipc_command *cmd) {
                                                 fragmentIds,
                                                 inputDepIds,
                                                 serialize_in,
+                                                ntohll(queryCommand->txnId),
                                                 ntohll(queryCommand->spHandle),
                                                 ntohll(queryCommand->lastCommittedSpHandle),
                                                 ntohll(queryCommand->uniqueId),
@@ -644,17 +638,20 @@ int8_t VoltDBIPC::loadTable(struct ipc_command *cmd) {
     }
 
     const int32_t tableId = ntohl(loadTableCommand->tableId);
+    const int64_t txnId = ntohll(loadTableCommand->txnId);
     const int64_t spHandle = ntohll(loadTableCommand->spHandle);
     const int64_t lastCommittedSpHandle = ntohll(loadTableCommand->lastCommittedSpHandle);
     const int64_t undoToken = ntohll(loadTableCommand->undoToken);
+    const bool undo = loadTableCommand->undo != 0;
+    const bool shouldDRStream = loadTableCommand->shouldDRStream != 0;
     // ...and fast serialized table last.
     void* offset = loadTableCommand->data;
     int sz = static_cast<int> (ntohl(cmd->msgsize) - sizeof(load_table_cmd));
     try {
-        ReferenceSerializeInput serialize_in(offset, sz);
+        ReferenceSerializeInputBE serialize_in(offset, sz);
         m_engine->setUndoToken(undoToken);
 
-        bool success = m_engine->loadTable(tableId, serialize_in, spHandle, lastCommittedSpHandle, false);
+        bool success = m_engine->loadTable(tableId, serialize_in, txnId, spHandle, lastCommittedSpHandle, undo, shouldDRStream);
         if (success) {
             return kErrorCode_Success;
         } else {
@@ -691,7 +688,7 @@ int VoltDBIPC::loadNextDependency(int32_t dependencyId, voltdb::Pool *stringPool
     }
 
     if (dependencySz > 0) {
-        ReferenceSerializeInput serialize_in(buf, dependencySz);
+        ReferenceSerializeInputBE serialize_in(buf, dependencySz);
         destination->loadTuplesFrom(serialize_in, stringPool);
         delete [] origBuf;
         return 1;
@@ -782,14 +779,18 @@ int64_t VoltDBIPC::fragmentProgressUpdate(int32_t batchIndex,
         std::string planNodeName,
         std::string targetTableName,
         int64_t targetTableSize,
-        int64_t tuplesProcessed) {
+        int64_t tuplesProcessed,
+        int64_t currMemoryInBytes,
+        int64_t peakMemoryInBytes) {
     char message[sizeof(int8_t) +
                  sizeof(int16_t) +
                  planNodeName.size() +
                  sizeof(int16_t) +
                  targetTableName.size() +
                  sizeof(targetTableSize) +
-                 sizeof(tuplesProcessed)];
+                 sizeof(tuplesProcessed) +
+                 sizeof(currMemoryInBytes) +
+                 sizeof(peakMemoryInBytes)];
     message[0] = static_cast<int8_t>(kErrorCode_progressUpdate);
     size_t offset = 1;
 
@@ -812,6 +813,12 @@ int64_t VoltDBIPC::fragmentProgressUpdate(int32_t batchIndex,
     offset += sizeof(targetTableSize);
 
     *reinterpret_cast<int64_t*>(&message[offset]) = htonll(tuplesProcessed);
+    offset += sizeof(tuplesProcessed);
+
+    *reinterpret_cast<int64_t*>(&message[offset]) = htonll(currMemoryInBytes);
+    offset += sizeof(tuplesProcessed);
+
+    *reinterpret_cast<int64_t*>(&message[offset]) = htonll(peakMemoryInBytes);
     offset += sizeof(tuplesProcessed);
 
     int32_t length;
@@ -840,18 +847,16 @@ int64_t VoltDBIPC::fragmentProgressUpdate(int32_t batchIndex,
     return nextStep;
 }
 
-std::string VoltDBIPC::planForFragmentId(int64_t fragmentId) {
-    char message[sizeof(int8_t) + sizeof(int64_t)];
-
-    message[0] = static_cast<int8_t>(kErrorCode_needPlan);
-    *reinterpret_cast<int64_t*>(&message[1]) = htonll(fragmentId);
-    writeOrDie(m_fd, (unsigned char*)message, sizeof(int8_t) + sizeof(int64_t));
-
+// A file static helper function that
+//   Reads a 4-byte integer from fd that is the length of the following string
+//   Reads the bytes for the string
+//   Returns those bytes as an std::string
+static std::string readLengthPrefixedBytesToStdString(int fd) {
     int32_t length;
-    ssize_t bytes = read(m_fd, &length, sizeof(int32_t));
-    if (bytes != sizeof(int32_t)) {
+    ssize_t numBytesRead = read(fd, &length, sizeof(int32_t));
+    if (numBytesRead != sizeof(int32_t)) {
         printf("Error - blocking read failed. %jd read %jd attempted",
-               (intmax_t)bytes, (intmax_t)sizeof(int32_t));
+               (intmax_t)numBytesRead, (intmax_t)sizeof(int32_t));
         fflush(stdout);
         assert(false);
         exit(-1);
@@ -859,33 +864,62 @@ std::string VoltDBIPC::planForFragmentId(int64_t fragmentId) {
     length = static_cast<int32_t>(ntohl(length) - sizeof(int32_t));
     assert(length > 0);
 
-    boost::scoped_array<char> planBytes(new char[length + 1]);
-    bytes = 0;
-    while (bytes != length) {
-        ssize_t oldBytes = bytes;
-        bytes += read(m_fd, planBytes.get() + bytes, length - bytes);
-        if (oldBytes == bytes) {
+    boost::scoped_array<char> bytes(new char[length + 1]);
+    numBytesRead = 0;
+    while (numBytesRead != length) {
+        ssize_t oldBytes = numBytesRead;
+        numBytesRead += read(fd, bytes.get() + numBytesRead, length - numBytesRead);
+        if (oldBytes == numBytesRead) {
             break;
         }
-        if (oldBytes > bytes) {
-            bytes++;
+        if (oldBytes > numBytesRead) {
+            numBytesRead++;
             break;
         }
     }
 
-    if (bytes != length) {
+    if (numBytesRead != length) {
         printf("Error - blocking read failed. %jd read %jd attempted",
-               (intmax_t)bytes, (intmax_t)length);
+               (intmax_t)numBytesRead, (intmax_t)length);
         fflush(stdout);
         assert(false);
         exit(-1);
     }
 
     // null terminate
-    planBytes[length] = '\0';
+    bytes[length] = '\0';
 
     // need to return a string
-    return std::string(planBytes.get());
+    return std::string(bytes.get());
+
+}
+
+std::string VoltDBIPC::decodeBase64AndDecompress(const std::string& base64Data) {
+    const size_t messageSize = sizeof(int8_t) + sizeof(int32_t) + base64Data.size();
+    unsigned char message[messageSize];
+    size_t offset = 0;
+
+    message[0] = static_cast<int8_t>(kErrorCode_decodeBase64AndDecompress);
+    offset++;
+
+    *reinterpret_cast<int32_t*>(&message[offset]) = htonl(static_cast<int32_t>(base64Data.size()));
+    offset += sizeof(int32_t);
+
+    ::memcpy(&message[offset], base64Data.c_str(), base64Data.size());
+
+    writeOrDie(m_fd, message, messageSize);
+
+    return readLengthPrefixedBytesToStdString(m_fd);
+}
+
+std::string VoltDBIPC::planForFragmentId(int64_t fragmentId) {
+    char message[sizeof(int8_t) + sizeof(int64_t)];
+
+    message[0] = static_cast<int8_t>(kErrorCode_needPlan);
+    *reinterpret_cast<int64_t*>(&message[1]) = htonll(fragmentId);
+    writeOrDie(m_fd, (unsigned char*)message, sizeof(int8_t) + sizeof(int64_t));
+
+    return readLengthPrefixedBytesToStdString(m_fd);
 }
 
 void VoltDBIPC::crashVoltDB(voltdb::FatalException e) {
@@ -1008,7 +1042,7 @@ int8_t VoltDBIPC::activateTableStream(struct ipc_command *cmd) {
     void* offset = activateTableStreamCommand->data;
     int sz = static_cast<int> (ntohl(cmd->msgsize) - sizeof(activate_tablestream));
     int64_t undoToken = ntohll(activateTableStreamCommand->undoToken);
-    ReferenceSerializeInput serialize_in(offset, sz);
+    ReferenceSerializeInputBE serialize_in(offset, sz);
 
     try {
         if (m_engine->activateTableStream(tableId, streamType, undoToken, serialize_in)) {
@@ -1046,7 +1080,7 @@ void VoltDBIPC::tableStreamSerializeMore(struct ipc_command *cmd) {
 
         void *inptr = tableStreamSerializeMore->data;
         int sz = static_cast<int> (ntohl(cmd->msgsize) - sizeof(tablestream_serialize_more));
-        ReferenceSerializeInput in1(inptr, sz);
+        ReferenceSerializeInputBE in1(inptr, sz);
 
         // Pass 1 - calculate size and allow for status code byte and count length integers.
         size_t outputSize = 1;
@@ -1066,7 +1100,7 @@ void VoltDBIPC::tableStreamSerializeMore(struct ipc_command *cmd) {
         }
 
         // Pass 2 - rescan input stream and generate final buffer data.
-        ReferenceSerializeInput in2(inptr, sz);
+        ReferenceSerializeInputBE in2(inptr, sz);
         // 1 byte status and 4 byte count
         size_t offset = 5;
         ReferenceSerializeOutput out1(m_reusedResultBuffer, MAX_MSG_SZ);
@@ -1083,7 +1117,7 @@ void VoltDBIPC::tableStreamSerializeMore(struct ipc_command *cmd) {
         }
 
         // Perform table stream serialization.
-        ReferenceSerializeInput out2(m_reusedResultBuffer, MAX_MSG_SZ);
+        ReferenceSerializeInputBE out2(m_reusedResultBuffer, MAX_MSG_SZ);
         std::vector<int> positions;
         int64_t remaining = m_engine->tableStreamSerializeMore(tableId, streamType, out2, positions);
 
@@ -1118,7 +1152,7 @@ void VoltDBIPC::tableStreamSerializeMore(struct ipc_command *cmd) {
 int8_t VoltDBIPC::processRecoveryMessage( struct ipc_command *cmd) {
     recovery_message *recoveryMessage = (recovery_message*) cmd;
     const int32_t messageLength = ntohl(recoveryMessage->messageLength);
-    ReferenceSerializeInput input(recoveryMessage->message, messageLength);
+    ReferenceSerializeInputBE input(recoveryMessage->message, messageLength);
     RecoveryProtoMsg message(&input);
     m_engine->processRecoveryMessage(&message);
     return kErrorCode_Success;
@@ -1194,7 +1228,7 @@ void VoltDBIPC::hashinate(struct ipc_command* cmd) {
     }
     void* offset = hash->data + configLength;
     int sz = static_cast<int> (ntohl(cmd->msgsize) - sizeof(hash));
-    ReferenceSerializeInput serialize_in(offset, sz);
+    ReferenceSerializeInputBE serialize_in(offset, sz);
 
     int retval = -1;
     try {
@@ -1328,6 +1362,12 @@ void VoltDBIPC::executeTask(struct ipc_command *cmd) {
     int32_t responseLength = m_engine->getResultsSize();
     char *resultsBuffer = m_engine->getReusedResultBuffer();
     writeOrDie(m_fd, (unsigned char*)resultsBuffer, responseLength);
+}
+
+void VoltDBIPC::pushDRBuffer(int32_t partitionId, voltdb::StreamBlock *block) {
+    if (block != NULL) {
+        delete []block->rawPtr();
+    }
 }
 
 void *eethread(void *ptr) {

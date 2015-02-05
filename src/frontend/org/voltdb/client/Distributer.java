@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -581,6 +581,9 @@ class Distributer {
                 e1.printStackTrace();
             }
 
+            // track the timestamp of the most recent read on this connection
+            m_lastResponseTimeNanos = nowNanos;
+
             final long handle = response.getClientHandle();
 
             // handle ping response and get out
@@ -602,9 +605,6 @@ class Distributer {
 
                 return;
             }
-
-            // track the timestamp of the most recent read on this connection
-            m_lastResponseTimeNanos = nowNanos;
 
             //Race with expiration thread to be the first to remove the callback
             //from the map and process it

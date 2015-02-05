@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -60,21 +60,12 @@ public abstract class LocalSingleProcessServer implements VoltServerConfig {
     {
         assert(jarFileName != null);
         assert(siteCount > 0);
-        final String buildType = System.getenv().get("BUILD");
         m_jarFileName = Configuration.getPathToCatalogForTest(jarFileName);
         m_siteCount = siteCount;
-        if (buildType == null) {
-            m_target = target;
+        if (LocalCluster.isMemcheckDefined() && target.equals(BackendTarget.NATIVE_EE_JNI)) {
+            m_target = BackendTarget.NATIVE_EE_VALGRIND_IPC;
         } else {
-            if (buildType.startsWith("memcheck")) {
-                if (target.equals(BackendTarget.NATIVE_EE_JNI)) {
-                    m_target = BackendTarget.NATIVE_EE_VALGRIND_IPC;
-                } else {
-                    m_target = target;//For memcheck
-                }
-            } else {
-                m_target = target;
-            }
+            m_target = target;
         }
     }
 
@@ -242,5 +233,10 @@ public abstract class LocalSingleProcessServer implements VoltServerConfig {
     @Override
     public File[] getPathInSubroots(File path) throws IOException {
         throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int getLogicalPartitionCount() {
+        return 1;
     }
 }

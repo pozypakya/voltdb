@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -174,9 +174,9 @@ public class IndexCountPlanNode extends AbstractScanPlanNode {
                 Column col = colRef.getColumn();
                 TupleValueExpression tve = new TupleValueExpression(m_targetTableName, m_targetTableAlias,
                         col.getTypeName(), col.getTypeName());
-                tve.setValueType(VoltType.get((byte)col.getType()));
-                tve.setValueSize(col.getSize());
-                tve.setInBytes(col.getInbytes());
+
+                tve.setTypeSizeBytes(col.getType(), col.getSize(), col.getInbytes());
+
                 tve.resolveForTable((Table)m_catalogIndex.getParent());
                 indexedExprs.add(tve);
             }

@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -62,9 +62,9 @@ public class MaterializedScanPlanNode extends AbstractPlanNode {
     public void setRowData(AbstractExpression tableData) {
         assert(tableData instanceof VectorValueExpression || tableData instanceof ParameterValueExpression);
         m_tableData = tableData;
-        m_outputExpression.setValueType(m_tableData.getValueType());
-        m_outputExpression.setValueSize(m_tableData.getValueSize());
-        m_outputExpression.setInBytes(m_tableData.getInBytes());
+
+        m_outputExpression.setTypeSizeBytes(m_tableData.getValueType(), m_tableData.getValueSize(),
+                m_tableData.getInBytes());
     }
 
     public void setSortDirection(SortDirectionType direction) {

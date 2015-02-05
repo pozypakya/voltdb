@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -23,106 +23,98 @@
 
 package org.voltdb;
 
+import junit.framework.TestCase;
+
 import org.json_voltpatches.JSONObject;
 import org.voltdb.client.Client;
+import org.voltdb.client.ClientConfig;
 import org.voltdb.client.ClientFactory;
 import org.voltdb.common.Constants;
 
-import junit.framework.TestCase;
-
 public class AdhocDDLTestBase extends TestCase {
-
-    // Still need to write these tests somewhere --izzy
-    //adHocQuery = "CREATE INDEX IDX_PROJ_PNAME ON PROJ(PNAME);";
-    //adHocQuery = "CREATE PROCEDURE AS SELECT 1 FROM PROJ;";
-    //adHocQuery = "CREATE PROCEDURE FROM CLASS bar.Foo;";
 
     protected ServerThread m_localServer;
     protected Client m_client;
 
     protected void startSystem(VoltDB.Configuration config) throws Exception
     {
-        m_localServer = new ServerThread(config);
-        m_localServer.start();
-        m_localServer.waitForInitialization();
-        m_client = ClientFactory.createClient();
-        m_client.createConnection("localhost");
+        startServer(config);
+        startClient(null);
     }
 
     protected void teardownSystem() throws Exception
     {
-        if (m_client != null) { m_client.close(); }
-        m_client = null;
+        stopClient();
+        stopServer();
+    }
 
+    protected void startServer(VoltDB.Configuration config) throws Exception
+    {
+        m_localServer = new ServerThread(config);
+        m_localServer.start();
+        m_localServer.waitForInitialization();
+    }
+
+    protected void startClient(ClientConfig clientConfig) throws Exception
+    {
+        if (clientConfig != null) {
+            m_client = ClientFactory.createClient(clientConfig);
+        }
+        else {
+            m_client = ClientFactory.createClient();
+        }
+        m_client.createConnection("localhost");
+    }
+
+    protected void stopServer() throws Exception
+    {
         if (m_localServer != null) {
             m_localServer.shutdown();
             m_localServer.join();
+            m_localServer = null;
         }
-        m_localServer = null;
     }
 
-    protected boolean moveToMatchingRow(VoltTable table, String columnName,
-                              String columnValue)
+    protected void stopClient() throws Exception
     {
-        boolean found = false;
-        table.resetRowPosition();
-        while (table.advanceRow())
-        {
-            if (((String)table.get(columnName, VoltType.STRING)).
-                    equalsIgnoreCase(columnValue.toUpperCase()))
-            {
-                found = true;
-                break;
-            }
+        if (m_client != null) {
+            m_client.close();
+            m_client = null;
         }
-        return found;
-    }
-
-    protected boolean moveToMatchingTupleRow(VoltTable table, String column1Name,
-                              String column1Value, String column2Name,
-                              String column2Value)
-    {
-        boolean found = false;
-        table.resetRowPosition();
-        while (table.advanceRow())
-        {
-            if (((String)table.get(column1Name, VoltType.STRING)).
-                    equalsIgnoreCase(column1Value.toUpperCase()) &&
-                    ((String)table.get(column2Name, VoltType.STRING)).
-                    equalsIgnoreCase(column2Value.toUpperCase()))
-            {
-                found = true;
-                break;
-            }
-        }
-        return found;
     }
 
     protected boolean findTableInSystemCatalogResults(String table) throws Exception
     {
         VoltTable tables = m_client.callProcedure("@SystemCatalog", "TABLES").getResults()[0];
-        boolean found = moveToMatchingRow(tables, "TABLE_NAME", table);
+        boolean found = VoltTableTestHelpers.moveToMatchingRow(tables, "TABLE_NAME", table);
         return found;
     }
 
     protected boolean findIndexInSystemCatalogResults(String index) throws Exception
     {
         VoltTable indexinfo = m_client.callProcedure("@SystemCatalog", "INDEXINFO").getResults()[0];
-        boolean found = moveToMatchingRow(indexinfo, "INDEX_NAME", index);
+        boolean found = VoltTableTestHelpers.moveToMatchingRow(indexinfo, "INDEX_NAME", index);
+        return found;
+    }
+
+    protected boolean findClassInSystemCatalog(String classname) throws Exception
+    {
+        VoltTable classes = m_client.callProcedure("@SystemCatalog", "CLASSES").getResults()[0];
+        boolean found = VoltTableTestHelpers.moveToMatchingRow(classes, "CLASS_NAME", classname);
         return found;
     }
 
     protected boolean findProcedureInSystemCatalog(String proc) throws Exception
     {
         VoltTable procedures = m_client.callProcedure("@SystemCatalog", "PROCEDURES").getResults()[0];
-        boolean found = moveToMatchingRow(procedures, "PROCEDURE_NAME", proc);
+        boolean found = VoltTableTestHelpers.moveToMatchingRow(procedures, "PROCEDURE_NAME", proc);
         return found;
     }
 
     protected boolean verifySinglePartitionProcedure(String proc) throws Exception
     {
         VoltTable procedures = m_client.callProcedure("@SystemCatalog", "PROCEDURES").getResults()[0];
-        boolean found = moveToMatchingRow(procedures, "PROCEDURE_NAME", proc);
+        boolean found = VoltTableTestHelpers.moveToMatchingRow(procedures, "PROCEDURE_NAME", proc);
         boolean verified = false;
         if (found) {
             String remarks = procedures.getString("REMARKS");
@@ -136,7 +128,7 @@ public class AdhocDDLTestBase extends TestCase {
     protected boolean verifyIndexUniqueness(String index, boolean expectedUniq) throws Exception
     {
         VoltTable indexinfo = m_client.callProcedure("@SystemCatalog", "INDEXINFO").getResults()[0];
-        boolean found = moveToMatchingRow(indexinfo, "INDEX_NAME", index);
+        boolean found = VoltTableTestHelpers.moveToMatchingRow(indexinfo, "INDEX_NAME", index);
         boolean verified = false;
         if (found) {
             int thisval = (int)indexinfo.getLong("NON_UNIQUE");
@@ -151,7 +143,7 @@ public class AdhocDDLTestBase extends TestCase {
     protected boolean doesColumnExist(String table, String column) throws Exception
     {
         VoltTable columns = m_client.callProcedure("@SystemCatalog", "COLUMNS").getResults()[0];
-        boolean found = moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
+        boolean found = VoltTableTestHelpers.moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
         return found;
     }
 
@@ -159,7 +151,7 @@ public class AdhocDDLTestBase extends TestCase {
         throws Exception
     {
         VoltTable columns = m_client.callProcedure("@SystemCatalog", "COLUMNS").getResults()[0];
-        boolean found = moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
+        boolean found = VoltTableTestHelpers.moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
         boolean verified = false;
         if (found) {
             String thistype = columns.getString("TYPE_NAME");
@@ -174,7 +166,7 @@ public class AdhocDDLTestBase extends TestCase {
         throws Exception
     {
         VoltTable columns = m_client.callProcedure("@SystemCatalog", "COLUMNS").getResults()[0];
-        boolean found = moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
+        boolean found = VoltTableTestHelpers.moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
         boolean verified = false;
         if (found) {
             int thissize = (int)columns.getLong("COLUMN_SIZE");
@@ -189,7 +181,7 @@ public class AdhocDDLTestBase extends TestCase {
         throws Exception
     {
         VoltTable columns = m_client.callProcedure("@SystemCatalog", "COLUMNS").getResults()[0];
-        boolean found = moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
+        boolean found = VoltTableTestHelpers.moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
         boolean verified = false;
         if (found) {
             String thisdefault = columns.getString("COLUMN_DEF");
@@ -206,7 +198,7 @@ public class AdhocDDLTestBase extends TestCase {
     {
         VoltTable columns = m_client.callProcedure("@SystemCatalog", "COLUMNS").getResults()[0];
         boolean nullable = false;
-        boolean found = moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
+        boolean found = VoltTableTestHelpers.moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
         if (found) {
             nullable = columns.getString("IS_NULLABLE").equalsIgnoreCase("YES");
         }
@@ -217,7 +209,7 @@ public class AdhocDDLTestBase extends TestCase {
     {
         VoltTable columns = m_client.callProcedure("@SystemCatalog", "COLUMNS").getResults()[0];
         boolean partitioncol = false;
-        boolean found = moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
+        boolean found = VoltTableTestHelpers.moveToMatchingTupleRow(columns, "TABLE_NAME", table, "COLUMN_NAME", column);
         if (found) {
             String remarks = columns.getString("REMARKS");
             if (remarks != null) {
@@ -225,5 +217,47 @@ public class AdhocDDLTestBase extends TestCase {
             }
         }
         return partitioncol;
+    }
+
+    protected int indexedColumnCount(String table) throws Exception
+    {
+        VoltTable indexinfo = m_client.callProcedure("@SystemCatalog", "INDEXINFO").getResults()[0];
+
+        int count = 0;
+        for(int i = 0; i < indexinfo.m_rowCount; i++)
+        {
+            indexinfo.advanceToRow(i);
+            String name = (String) indexinfo.get(2, VoltType.STRING);
+            if(name.equals(table))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    protected String getTableType(String table) throws Exception
+    {
+        VoltTable tableinfo = m_client.callProcedure("@SystemCatalog", "TABLES").getResults()[0];
+        for(int i = 0; i < tableinfo.m_rowCount; i++)
+        {
+            tableinfo.advanceToRow(i);
+            String tablename = (String) tableinfo.get(2, VoltType.STRING);
+            if(tablename.equals(table))
+            {
+                return (String) tableinfo.get(3, VoltType.STRING);
+            }
+        }
+        return null;
+    }
+
+    protected VoltTable getStatWaitOnRowCount(String selector, int expected) throws Exception
+    {
+        // Stats are polled out of EE, so we have to poll and wait for a change
+        VoltTable stats = null;
+        do {
+            stats = m_client.callProcedure("@Statistics", selector, 0).getResults()[0];
+        } while (stats.getRowCount() != expected);
+        return stats;
     }
 }

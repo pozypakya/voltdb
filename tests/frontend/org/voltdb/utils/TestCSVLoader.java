@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -23,12 +23,18 @@
 
 package org.voltdb.utils;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.TimeZone;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -47,9 +53,6 @@ import org.voltdb.client.ProcCallException;
 import org.voltdb.common.Constants;
 import org.voltdb.compiler.VoltProjectBuilder;
 import org.voltdb.types.TimestampType;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 public class TestCSVLoader {
 
@@ -449,6 +452,54 @@ public class TestCSVLoader {
     }
 
     @Test
+    public void testCustomNULL() throws Exception
+    {
+        String []myOptions = {
+                "-f" + path_csv,
+                "--reportdir=" + reportDir,
+                "--maxerrors=50",
+                "--user=",
+                "--password=",
+                "--port=",
+                "--separator=,",
+                "--quotechar=\"",
+                "--escape=\\",
+                "--skip=0",
+                "--customNullString=test",
+                "BLAH"
+        };
+        //Both \N and \\N as csv input are treated as NULL
+        String []myData = {
+                "1,1,1,11111111,test,1.10,1.11,",
+                "2,2,1,11111111,\"test\",1.10,1.11,",
+                "3,3,1,11111111,testme,1.10,1.11,",
+                "4,4,1,11111111,iamtest,1.10,1.11,",
+                "5,5,5,5,\\N,1.10,1.11,7777-12-25 14:35:26",
+        };
+        int invalidLineCnt = 0;
+        int validLineCnt = myData.length - invalidLineCnt;
+        test_Interface(myOptions, myData, invalidLineCnt, validLineCnt );
+        VoltTable ts_table = client.callProcedure("@AdHoc", "SELECT * FROM BLAH ORDER BY clm_integer;").getResults()[0];
+        int i = 0;
+        int nulls = 0;
+        while (ts_table.advanceRow()) {
+            String value = ts_table.getString(4);
+            if(i < 2) {
+                assertEquals(value, null);
+                nulls++;
+            } else if(i == 4){
+                // this test case should fail once we stop replacing the \N as NULL
+                assertEquals(value, null);
+                nulls++;
+            } else {
+                assertNotNull(value);
+            }
+            i++;
+        }
+        assertEquals(nulls, 3);
+    }
+
+    @Test
     public void testBlankDefault() throws Exception
     {
         String []myOptions = {
@@ -535,8 +586,11 @@ public class TestCSVLoader {
                 "2,2,2,2,a word,1.10,1.11,7777-12-25 14:35:26",
                 "3,3,3,3,a word,1.10,1.11,7777-12-25 14:35:26",
                 "\"4\",\"1\",\"1\",\"1\",\"a word\",\"1.10\",\"1.11\",\"7777-12-25 14:35:26\"",
+                "5,\"5\",\"5\",\"5\",,,,",
+                "\"5\",5,\"5\",\"5\",,,,",
+                "\"5\",\"5\",,,,,,",
         };
-        int invalidLineCnt = 2;
+        int invalidLineCnt = 4;
         int validLineCnt = myData.length - invalidLineCnt;
         test_Interface(myOptions, myData, invalidLineCnt, validLineCnt );
     }
@@ -733,6 +787,70 @@ public class TestCSVLoader {
         test_Interface(myOptions, myData, invalidLineCnt, validLineCnt);
     }
 
+    @Test
+    public void testTimestampStringRoundTrip() throws Exception
+    {
+        String []myOptions = {
+                "-f" + path_csv,
+                "--reportdir=" + reportDir,
+                "BLAH"
+        };
+
+        String []myData = {
+                "1,,,,,,,7777-12-25",
+                "2,,,,,,,7777-12-25 00:00:00",
+                "3,,,,,,,2000-02-03",
+                "4,,,,,,,2000-02-03 00:00:00.0",
+                "5,,,,,,,2100-04-05",
+                "6,,,,,,,2100-04-05 00:00:00.00",
+                "7,,,,,,,2012-12-31",
+                "8,,,,,,,2012-12-31 00:00:00.000",
+                "9,,,,,,,2001-10-25",
+                "10,,,,,,,2001-10-25 00:00:00.0000",
+        };
+        int invalidLineCnt = 0;
+        int validLineCnt = myData.length - invalidLineCnt;
+        test_Interface(myOptions, myData, invalidLineCnt, validLineCnt);
+        VoltTable ts_table = client.callProcedure("@AdHoc", "SELECT * FROM BLAH ORDER BY clm_integer;").getResults()[0];
+        while (ts_table.advanceRow()) {
+            TimestampType ts1 = ts_table.getTimestampAsTimestamp(7);
+            if (ts_table.advanceRow()) {
+                TimestampType ts2 = ts_table.getTimestampAsTimestamp(7);
+                assertEquals(ts1, ts2);
+                continue;
+            }
+        }
+
+    }
+
+    @Test
+    public void testTimeZone() throws Exception {
+        String []myOptions = {
+                "-f" + path_csv,
+                "--reportdir=" + reportDir,
+                "--timezone=PST",
+                "BlAh"
+        };
+        String currentTime= "2007-09-23 10:10:10.0";
+        String[] myData = {
+            "1 ,1,1,11111111,first,1.10,1.11," + currentTime,
+        };
+        int invalidLineCnt = 0;
+        int validLineCnt =  1;
+        TimeZone timezone = TimeZone.getDefault();
+        test_Interface(myOptions, myData, invalidLineCnt, validLineCnt);
+        //Resetting the JVM TimeZone
+        TimeZone.setDefault(timezone);
+
+        VoltTable ts_table = client.callProcedure("@AdHoc", "SELECT * FROM BLAH;").getResults()[0];
+        ts_table.advanceRow();
+        long tableTimeCol = ts_table.getTimestampAsLong(7);
+        // 2007-09-23 10:10:10.0 converted to long is 1190542210000000
+        long time = 1190542210000000L;
+        long diff = tableTimeCol - time;
+        assertEquals(TimeUnit.MICROSECONDS.toHours(diff), 7);
+    }
+
     public void test_Interface(String[] my_options, String[] my_data, int invalidLineCnt,
             int validLineCnt) throws Exception {
         try{
@@ -782,6 +900,7 @@ public class TestCSVLoader {
                 invalidlinecnt = Integer.parseInt(num.replaceAll("\\s",""));
             }
         }
+        csvreport.close();
         System.out.println(String.format("The rows infected: (%d,%s)", lineCount, rowct));
         assertEquals(lineCount, rowct);
         //assert validLineCnt specified equals the successfully inserted lineCount

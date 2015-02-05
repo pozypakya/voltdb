@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -23,6 +23,7 @@
 
 import org.openqa.selenium.chrome.ChromeDriver
 import org.openqa.selenium.firefox.FirefoxDriver
+import org.openqa.selenium.safari.SafariDriver
 
 
 waiting {
@@ -38,7 +39,11 @@ environments {
     chrome {
         driver = { new ChromeDriver() }
     }
-    
+
+    safari {
+        driver = { new SafariDriver() }
+    }
+
 }
 
 // To run the tests with all browsers run “./gradlew test”

@@ -13,7 +13,7 @@ defaultlicensedays = 45 #default trial license length
 # CHECKOUT CODE INTO A TEMP DIR
 ################################################
 
-def checkoutCode(voltdbGit, proGit):
+def checkoutCode(voltdbGit, proGit, rbmqExportGit):
     global buildir
     # clean out the existing dir
     run("rm -rf " + builddir)
@@ -26,6 +26,8 @@ def checkoutCode(voltdbGit, proGit):
         run("cd voltdb; git checkout %s" % voltdbGit)
         run("git clone git@github.com:VoltDB/pro.git")
         run("cd pro; git checkout %s" % proGit)
+        run("git clone git@github.com:VoltDB/export-rabbitmq.git")
+        run("cd export-rabbitmq; git checkout %s" % rbmqExportGit)
         return run("cat voltdb/version.txt").strip()
 
 ################################################
@@ -58,7 +60,7 @@ def buildCommunity():
         run("pwd")
         run("git status")
         run("git describe --dirty")
-        run("ant -Djmemcheck=NO_MEMCHECK clean default dist")
+        run("ant -Djmemcheck=NO_MEMCHECK %s clean default dist" % build_args)
 
 ################################################
 # BUILD THE ENTERPRISE VERSION
@@ -69,7 +71,26 @@ def buildPro():
         run("pwd")
         run("git status")
         run("git describe --dirty")
-        run("VOLTCORE=../voltdb ant -f mmt.xml -Djmemcheck=NO_MEMCHECK -Dallowreplication=true -Dlicensedays=%d clean dist.pro" % defaultlicensedays)
+        run("VOLTCORE=../voltdb ant -f mmt.xml -Djmemcheck=NO_MEMCHECK -Dallowreplication=true -Dlicensedays=%d %s clean dist.pro" % (defaultlicensedays, build_args))
+
+################################################
+# BUILD THE RABBITMQ EXPORT CONNECTOR
+################################################
+
+def buildRabbitMQExport(version):
+    with cd(builddir + "/export-rabbitmq"):
+        run("pwd")
+        run("git status")
+        run("git describe --dirty", warn_only=True)
+        run("VOLTDIST=../pro/obj/pro/voltdb-ent-%s ant" % version)
+    # Repackage the pro tarball and zip file with the RabbitMQ connector Jar
+    with cd("%s/pro/obj/pro" % builddir):
+        run("pwd")
+        run("gunzip voltdb-ent-%s.tar.gz" % version)
+        run("tar uvf voltdb-ent-%s.tar voltdb-ent-%s/lib/extension/voltdb-rabbitmq.jar" % (version, version))
+        if versionHasZipTarget():
+            run("gzip voltdb-ent-%s.tar" % version)
+            run("zip -r voltdb-ent-%s.zip voltdb-ent-%s" % (version, version))
 
 ################################################
 # MAKE AN ENTERPRISE TRIAL LICENSE
@@ -98,8 +119,6 @@ def copyCommunityFilesToReleaseDir(releaseDir, version, operatingsys):
         "%s/%s-voltdb-%s.tar.gz" % (releaseDir, operatingsys, version))
     get("%s/voltdb/obj/release/voltdb-client-java-%s.tar.gz" % (builddir, version),
         "%s/voltdb-client-java-%s.tar.gz" % (releaseDir, version))
-    get("%s/voltdb/obj/release/voltdb-studio.web-%s.zip" % (builddir, version),
-        "%s/voltdb-studio.web-%s.zip" % (releaseDir, version))
     get("%s/voltdb/obj/release/voltdb-tools-%s.tar.gz" % (builddir, version),
         "%s/voltdb-tools-%s.tar.gz" % (releaseDir, version))
 
@@ -176,6 +195,7 @@ if (len(sys.argv) > 3 or (len(sys.argv) == 2 and sys.argv[1] == "-h")):
 
 proTreeish = "master"
 voltdbTreeish = "master"
+rbmqExportTreeish = "master"
 
 # pass -o if you want the build put in the one-offs directory
 # passing different voltdb and pro trees also forces one-off
@@ -189,12 +209,19 @@ if len(sys.argv) == 2:
     createCandidate = False
     proTreeish = sys.argv[1]
     voltdbTreeish = sys.argv[1]
+    rbmqExportTreeish = sys.argv[1]
 if len(sys.argv) == 3:
     createCandidate = False
     voltdbTreeish = sys.argv[1]
     proTreeish = sys.argv[2]
+    rbmqExportTreeish = sys.argv[2]
     if voltdbTreeish != proTreeish:
         oneOff = True     #force oneoff when not same tag/branch
+
+try:
+    build_args = os.environ['VOLTDB_BUILD_ARGS']
+except:
+    build_args=""
 
 print "Building with pro: %s and voltdb: %s" % (proTreeish, voltdbTreeish)
 
@@ -212,7 +239,7 @@ UbuntuSSHInfo = getSSHInfoForHost("volt12d")
 # build kits on 5f
 try:
     with settings(user=username,host_string=CentosSSHInfo[1],disable_known_hosts=True,key_filename=CentosSSHInfo[0]):
-        versionCentos = checkoutCode(voltdbTreeish, proTreeish)
+        versionCentos = checkoutCode(voltdbTreeish, proTreeish, rbmqExportTreeish)
         if oneOff:
             releaseDir = "%s/releases/one-offs/%s-%s-%s" % \
                 (os.getenv('HOME'), versionCentos, voltdbTreeish, proTreeish)
@@ -223,6 +250,7 @@ try:
         buildCommunity()
         copyCommunityFilesToReleaseDir(releaseDir, versionCentos, "LINUX")
         buildPro()
+        buildRabbitMQExport(versionCentos)
         copyEnterpriseFilesToReleaseDir(releaseDir, versionCentos, "LINUX")
         makeTrialLicense()
         copyTrialLicenseToReleaseDir(releaseDir)
@@ -236,11 +264,12 @@ except Exception as e:
 try:
 # build kits on the mini
     with settings(user=username,host_string=MacSSHInfo[1],disable_known_hosts=True,key_filename=MacSSHInfo[0]):
-        versionMac = checkoutCode(voltdbTreeish, proTreeish)
+        versionMac = checkoutCode(voltdbTreeish, proTreeish, rbmqExportTreeish)
         assert versionCentos == versionMac
         buildCommunity()
         copyCommunityFilesToReleaseDir(releaseDir, versionMac, "MAC")
         buildPro()
+        buildRabbitMQExport(versionMac)
         copyEnterpriseFilesToReleaseDir(releaseDir, versionMac, "MAC")
 except Exception as e:
     print "Coult not build MAC kit: " + str(e)

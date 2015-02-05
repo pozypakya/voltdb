@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -61,7 +61,7 @@ public class AdHocMayhemThread extends Thread {
 
         // mpRatio % of all adhocs are MP
         boolean replicated = (counter % 100) < (this.mpRatio * 100.);
-        boolean batched = (counter % 11) == 0;
+        boolean batched = (counter % 11) == 0 && this.mpRatio > 0.0;
 
         // batched statements can go rw, wr or ww
         long rwMix = counter % 3;

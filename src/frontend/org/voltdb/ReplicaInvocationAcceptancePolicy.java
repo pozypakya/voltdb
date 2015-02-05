@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -27,7 +27,7 @@ import org.voltdb.client.ProcedureInvocationType;
  * secondary cluster. Secondary cluster only accepts read-only procedures from
  * normal clients, and write procedures from DR agent.
  */
-public class ReplicaInvocationAcceptancePolicy extends InvocationAcceptancePolicy {
+public class ReplicaInvocationAcceptancePolicy extends InvocationValidationPolicy {
     public ReplicaInvocationAcceptancePolicy(boolean isOn) {
         super(isOn);  // isOn == TRUE means this is a Replica cluster.
     }

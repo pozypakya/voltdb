@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This file contains original code and/or modifications of original code.
  * Any modifications made by VoltDB Inc. are licensed under the following
@@ -43,7 +43,7 @@
  */
 
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -134,9 +134,6 @@ class VoltNetwork implements Runnable, IOStatsIntf
             throw new RuntimeException(ex);
         }
         m_ninjaSelectedKeys = NinjaKeySet.instrumentSelector(m_selector);
-        if (m_ninjaSelectedKeys == null) {
-            throw new AssertionError("Failed to instrument selector");
-        }
     }
 
     VoltNetwork( Selector s) {
@@ -315,7 +312,11 @@ class VoltNetwork implements Runnable, IOStatsIntf
                         }
 
                         if (readyKeys > 0) {
-                            optimizedInvokeCallbacks(r);
+                            if (NinjaKeySet.supported) {
+                                optimizedInvokeCallbacks(r);
+                            } else {
+                                invokeCallbacks(r);
+                            }
                         }
 
                         /*

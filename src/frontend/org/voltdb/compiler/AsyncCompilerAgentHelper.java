@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -18,15 +18,15 @@
 package org.voltdb.compiler;
 
 import java.io.IOException;
+import java.util.Map.Entry;
 
 import org.voltcore.logging.VoltLogger;
 import org.voltcore.utils.Pair;
 import org.voltdb.CatalogContext;
 import org.voltdb.VoltDB;
-import org.voltdb.VoltZK;
 import org.voltdb.catalog.Catalog;
 import org.voltdb.catalog.CatalogDiffEngine;
-import org.voltdb.common.Constants;
+import org.voltdb.compiler.ClassMatcher.ClassNameMatchStatus;
 import org.voltdb.utils.CatalogUtil;
 import org.voltdb.utils.Encoder;
 import org.voltdb.utils.InMemoryJarfile;
@@ -46,27 +46,70 @@ public class AsyncCompilerAgentHelper
         retval.invocationType = work.invocationType;
         retval.originalTxnId = work.originalTxnId;
         retval.originalUniqueId = work.originalUniqueId;
+        retval.user = work.user;
+        retval.tablesThatMustBeEmpty = new String[0]; // ensure non-null
 
-        // catalog change specific boiler plate
-        CatalogContext context = VoltDB.instance().getCatalogContext();
-        byte[] newCatalogBytes = work.catalogBytes;
-        // Grab the current catalog bytes if the user didn't provide a catalog
-        // (deployment-only change or adhoc DDL)
-        if (work.catalogBytes == null) {
-            try {
-                newCatalogBytes = context.getCatalogJarBytes();
+        try {
+            // catalog change specific boiler plate
+            CatalogContext context = VoltDB.instance().getCatalogContext();
+            // Start by assuming we're doing an @UpdateApplicationCatalog.  If-ladder below
+            // will complete with newCatalogBytes actually containing the bytes of the
+            // catalog to be applied, and deploymentString will contain an actual deployment string,
+            // or null if it still needs to be filled in.
+            byte[] newCatalogBytes = work.operationBytes;
+            String deploymentString = work.operationString;
+            if (work.invocationName.equals("@UpdateApplicationCatalog")) {
+                // Do the straight-forward thing with the args, filling in nulls as appropriate
+                // Grab the current catalog bytes if @UAC had a null catalog
+                // (deployment-only update)
+                if (newCatalogBytes == null) {
+                    try {
+                        newCatalogBytes = context.getCatalogJarBytes();
+                    }
+                    catch (IOException ioe) {
+                        retval.errorMsg = "Unexpected exception retrieving internal catalog bytes: " +
+                            ioe.getMessage();
+                        return retval;
+                    }
+                }
+                // If the deploymentString is null, we'll fill it in with current deployment later
+                // Otherwise, deploymentString has the right contents, don't need to touch it
             }
-            catch (IOException ioe) {
-                retval.errorMsg = "Unexpected exception retrieving internal catalog bytes: " +
-                    ioe.getMessage();
-                return retval;
-            }
-            if (work.adhocDDLStmts != null) {
+            else if (work.invocationName.equals("@UpdateClasses")) {
+                // Need the original catalog bytes, then delete classes, then add
                 try {
-                    newCatalogBytes = addDDLToCatalog(newCatalogBytes, work.adhocDDLStmts);
+                    newCatalogBytes = context.getCatalogJarBytes();
                 }
                 catch (IOException ioe) {
-                    retval.errorMsg = ioe.getMessage();
+                    retval.errorMsg = "Unexpected exception retrieving internal catalog bytes: " +
+                        ioe.getMessage();
+                    return retval;
+                }
+                // provided operationString is really a String with class patterns to delete,
+                // provided operationBytes is the jarfile with the upsertable classes
+                try {
+                    newCatalogBytes = modifyCatalogClasses(newCatalogBytes, work.operationString,
+                            work.operationBytes);
+                }
+                catch (IOException e) {
+                    retval.errorMsg = "Unexpected exception @UpdateClasses modifying classes " +
+                        "from catalog: " + e.getMessage();
+                    return retval;
+                }
+                // Real deploymentString should be the current deployment, just set it to null
+                // here and let it get filled in correctly later.
+                deploymentString = null;
+            }
+            else if (work.invocationName.startsWith("@AdHoc")) {
+                // newCatalogBytes and deploymentString should be null.
+                // work.adhocDDLStmts should be applied to the current catalog
+                try {
+                    newCatalogBytes = addDDLToCatalog(context.catalog, context.getCatalogJarBytes(),
+                            work.adhocDDLStmts);
+                }
+                catch (IOException ioe) {
+                    retval.errorMsg = "Unexpected exception applying DDL statements to " +
+                        "original catalog: " + ioe.getMessage();
                     return retval;
                 }
                 if (newCatalogBytes == null) {
@@ -75,21 +118,32 @@ public class AsyncCompilerAgentHelper
                         "Unexpected failure in applying DDL statements to original catalog";
                     return retval;
                 }
+                // Real deploymentString should be the current deployment, just set it to null
+                // here and let it get filled in correctly later.
+                deploymentString = null;
             }
-        }
-        retval.catalogBytes = newCatalogBytes;
-        retval.catalogHash = CatalogUtil.makeCatalogOrDeploymentHash(newCatalogBytes);
+            else {
+                retval.errorMsg = "Unexpected work in the AsyncCompilerAgentHelper: " +
+                    work.invocationName;
+                return retval;
+            }
+            retval.catalogBytes = newCatalogBytes;
+            retval.catalogHash = CatalogUtil.makeCatalogOrDeploymentHash(newCatalogBytes);
 
-        // UpdateApplicationCatalog uses the original null value to decide whether or not
-        // to update the global ZK version of the deployment bytes, so just push that
-        // along for now.
-        retval.deploymentString = work.deploymentString;
-
-        // get the diff between catalogs
-        try {
+            // get the diff between catalogs
             // try to get the new catalog from the params
-            Pair<String, String> loadResults = CatalogUtil.loadAndUpgradeCatalogFromJar(newCatalogBytes, null);
-            String newCatalogCommands = loadResults.getFirst();
+            Pair<InMemoryJarfile, String> loadResults = null;
+            try {
+                loadResults = CatalogUtil.loadAndUpgradeCatalogFromJar(newCatalogBytes);
+            }
+            catch (IOException ioe) {
+                // Preserve a nicer message from the jarfile loading rather than
+                // falling through to the ZOMG message in the big catch
+                retval.errorMsg = ioe.getMessage();
+                return retval;
+            }
+            String newCatalogCommands =
+                CatalogUtil.getSerializedCatalogStringFromJar(loadResults.getFirst());
             retval.upgradedFromVersion = loadResults.getSecond();
             if (newCatalogCommands == null) {
                 retval.errorMsg = "Unable to read from catalog bytes";
@@ -98,12 +152,10 @@ public class AsyncCompilerAgentHelper
             Catalog newCatalog = new Catalog();
             newCatalog.execute(newCatalogCommands);
 
-            String deploymentString = work.deploymentString;
-            // work.deploymentString could be null if it wasn't provided to UpdateApplicationCatalog
+            // Retrieve the original deployment string, if necessary
             if (deploymentString == null) {
-                // Go get the deployment string from ZK.  Hope it's there and up-to-date.  Yeehaw!
-                byte[] deploymentBytes =
-                    VoltDB.instance().getHostMessenger().getZK().getData(VoltZK.deploymentBytes, false, null);
+                // Go get the deployment string from the current catalog context
+                byte[] deploymentBytes = context.getDeploymentBytes();
                 if (deploymentBytes != null) {
                     deploymentString = new String(deploymentBytes, "UTF-8");
                 }
@@ -114,12 +166,14 @@ public class AsyncCompilerAgentHelper
                 }
             }
 
-            long result = CatalogUtil.compileDeploymentString(newCatalog, deploymentString, false, false);
-            if (result < 0) {
-                retval.errorMsg = "Unable to read from deployment file string";
+            String result =
+                CatalogUtil.compileDeploymentString(newCatalog, deploymentString, false);
+            if (result != null) {
+                retval.errorMsg = "Unable to update deployment configuration: " + result;
                 return retval;
             }
 
+            retval.deploymentString = deploymentString;
             retval.deploymentHash =
                 CatalogUtil.makeCatalogOrDeploymentHash(deploymentString.getBytes("UTF-8"));
 
@@ -137,13 +191,17 @@ public class AsyncCompilerAgentHelper
 
             // since diff commands can be stupidly big, compress them here
             retval.encodedDiffCommands = Encoder.compressAndBase64Encode(diff.commands());
+            retval.tablesThatMustBeEmpty = diff.tablesThatMustBeEmpty();
+            retval.reasonsForEmptyTables = diff.reasonsWhyTablesMustBeEmpty();
             retval.requiresSnapshotIsolation = diff.requiresSnapshotIsolation();
             retval.worksWithElastic = diff.worksWithElastic();
         }
         catch (Exception e) {
-            e.printStackTrace();
+            String msg = "Unexpected error in adhoc or catalog update: " + e.getClass() + ", " +
+                e.getMessage();
+            compilerLog.warn(msg, e);
             retval.encodedDiffCommands = null;
-            retval.errorMsg = e.getMessage();
+            retval.errorMsg = msg;
         }
 
         return retval;
@@ -153,33 +211,25 @@ public class AsyncCompilerAgentHelper
      * Append the supplied adhoc DDL to the current catalog's DDL and recompile the
      * jarfile
      */
-    private byte[] addDDLToCatalog(byte[] oldCatalogBytes, String[] adhocDDLStmts)
+    private byte[] addDDLToCatalog(Catalog oldCatalog, byte[] oldCatalogBytes, String[] adhocDDLStmts)
     throws IOException
     {
         VoltCompilerReader ddlReader = null;
         try {
             InMemoryJarfile jarfile = CatalogUtil.loadInMemoryJarFile(oldCatalogBytes);
-            // Yoink the current cluster catalog's canonical DDL and append the supplied
-            // adhoc DDL to it.
-            String oldDDL = new String(jarfile.get(VoltCompiler.AUTOGEN_DDL_FILE_NAME),
-                    Constants.UTF8ENCODING);
+
             StringBuilder sb = new StringBuilder();
-            sb.append(oldDDL);
-            sb.append("\n");
+            compilerLog.info("Applying the following DDL to cluster:");
             for (String stmt : adhocDDLStmts) {
+                compilerLog.info("\t" + stmt);
                 sb.append(stmt);
                 sb.append(";\n");
             }
-            compilerLog.debug("Adhoc-modified DDL:\n" + sb.toString());
-            // Put the new DDL back into the InMemoryJarfile we built because that's
-            // the artifact the compiler is expecting to work on.  This allows us to preserve any
-            // stored procedure classes and the class loader that came with the catalog
-            // before we appended to it.
-            ddlReader =
-                new VoltCompilerStringReader(VoltCompiler.AUTOGEN_DDL_FILE_NAME, sb.toString());
-            ddlReader.putInJar(jarfile, VoltCompiler.AUTOGEN_DDL_FILE_NAME);
+            String newDDL = sb.toString();
+            compilerLog.trace("Adhoc-modified DDL:\n" + newDDL);
+
             VoltCompiler compiler = new VoltCompiler();
-            compiler.compileInMemoryJarfile(jarfile);
+            compiler.compileInMemoryJarfileWithNewDDL(jarfile, newDDL, oldCatalog);
             return jarfile.getFullJarBytes();
         }
         finally {
@@ -190,5 +240,52 @@ public class AsyncCompilerAgentHelper
                 catch (IOException ioe) {}
             }
         }
+    }
+
+    private byte[] modifyCatalogClasses(byte[] oldCatalogBytes, String deletePatterns,
+            byte[] newClassBytes) throws IOException
+    {
+        // Create a new InMemoryJarfile based on the original catalog bytes,
+        // modify it in place based on the @UpdateClasses inputs, and then
+        // recompile it if necessary
+        InMemoryJarfile jarfile = CatalogUtil.loadInMemoryJarFile(oldCatalogBytes);
+        boolean deletedClasses = false;
+        if (deletePatterns != null) {
+            String[] patterns = deletePatterns.split(",");
+            ClassMatcher matcher = new ClassMatcher();
+            // Need to concatenate all the classnames together for ClassMatcher
+            String currentClasses = "";
+            for (String classname : jarfile.getLoader().getClassNames()) {
+                currentClasses = currentClasses.concat(classname + "\n");
+            }
+            matcher.m_classList = currentClasses;
+            for (String pattern : patterns) {
+                ClassNameMatchStatus status = matcher.addPattern(pattern.trim());
+                if (status == ClassNameMatchStatus.MATCH_FOUND) {
+                    deletedClasses = true;
+                }
+            }
+            for (String classname : matcher.getMatchedClassList()) {
+                jarfile.removeClassFromJar(classname);
+            }
+        }
+        boolean foundClasses = false;
+        if (newClassBytes != null) {
+            InMemoryJarfile newJarfile = new InMemoryJarfile(newClassBytes);
+            for (Entry<String, byte[]> e : newJarfile.entrySet()) {
+                String filename = e.getKey();
+                if (!filename.endsWith(".class")) {
+                    continue;
+                }
+                foundClasses = true;
+                jarfile.put(e.getKey(), e.getValue());
+            }
+        }
+        if (deletedClasses || foundClasses) {
+            compilerLog.info("Updating java classes available to stored procedures");
+            VoltCompiler compiler = new VoltCompiler();
+            compiler.compileInMemoryJarfile(jarfile);
+        }
+        return jarfile.getFullJarBytes();
     }
 }

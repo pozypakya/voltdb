@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,6 @@
 
 package org.voltdb.iv2;
 
-import java.util.List;
 import java.util.concurrent.ExecutionException;
 
 import org.apache.zookeeper_voltpatches.KeeperException;
@@ -38,7 +37,7 @@ import org.voltdb.StatsAgent;
 public interface Initiator
 {
     /** Configure an Initiator and prepare it for work */
-    public void configure(BackendTarget backend, String serializedCatalog,
+    public void configure(BackendTarget backend,
                           CatalogContext catalogContext,
                           int kfactor, CatalogSpecificPlanner csp,
                           int numberOfPartitions,

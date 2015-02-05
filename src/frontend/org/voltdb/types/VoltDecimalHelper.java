@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -133,6 +133,12 @@ public class VoltDecimalHelper {
             replacement[ii] = scaledValue[ii - (replacement.length - scaledValue.length)];
         }
         return replacement;
+    }
+
+    static public byte[] serializeBigDecimal(BigDecimal bd) {
+        ByteBuffer buf = ByteBuffer.allocate(16);
+        serializeBigDecimal(bd, buf);
+        return buf.array();
     }
 
     /**

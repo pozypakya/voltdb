@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -18,7 +18,11 @@
 package org.voltdb.compiler;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -30,6 +34,7 @@ import org.voltcore.messaging.Mailbox;
 import org.voltcore.messaging.VoltMessage;
 import org.voltcore.utils.CoreUtils;
 import org.voltdb.CatalogContext;
+import org.voltdb.ClientInterface.ExplainMode;
 import org.voltdb.VoltDB;
 import org.voltdb.VoltType;
 import org.voltdb.messaging.LocalMailbox;
@@ -41,7 +46,7 @@ import com.google_voltpatches.common.util.concurrent.ListeningExecutorService;
 public class AsyncCompilerAgent {
 
     private static final VoltLogger hostLog = new VoltLogger("HOST");
-    static final VoltLogger ahpLog = new VoltLogger("ADHOCPLANNERTHREAD");
+    private static final VoltLogger adhocLog = new VoltLogger("ADHOC");
 
     // if more than this amount of work is queued, reject new work
     static public final int MAX_QUEUE_DEPTH = 250;
@@ -110,10 +115,14 @@ public class AsyncCompilerAgent {
         if (wrapper.payload instanceof AdHocPlannerWork) {
             final AdHocPlannerWork w = (AdHocPlannerWork)(wrapper.payload);
             // do initial naive scan of statements for DDL, forbid mixed DDL and (DML|DQL)
-            // This is not currently robust to comment, multi-line statments,
-            // multiple statements on a line, etc.
             Boolean hasDDL = null;
+            // conflictTables tracks dropped tables before removing the ones that don't have CREATEs.
+            SortedSet<String> conflictTables = new TreeSet<String>();
+            Set<String> createdTables = new HashSet<String>();
             for (String stmt : w.sqlStatements) {
+                if (SQLLexer.isComment(stmt) || stmt.trim().isEmpty()) {
+                    continue;
+                }
                 String ddlToken = SQLLexer.extractDDLToken(stmt);
                 if (hasDDL == null) {
                     hasDDL = (ddlToken != null) ? true : false;
@@ -127,26 +136,111 @@ public class AsyncCompilerAgent {
                     w.completionHandler.onCompletion(errResult);
                     return;
                 }
-                // if it's DDL, check to see if it's allowed
-                if (hasDDL && !SQLLexer.isPermitted(stmt)) {
-                    AsyncCompilerResult errResult =
-                        AsyncCompilerResult.makeErrorResult(w,
-                                "AdHoc DDL contains an unsupported DDL statement: " + stmt);
-                    w.completionHandler.onCompletion(errResult);
-                    return;
+                // do a couple of additional checks if it's DDL
+                if (hasDDL) {
+                    // check that the DDL is allowed
+                    if (!SQLLexer.isPermitted(stmt)) {
+                        AsyncCompilerResult errResult =
+                            AsyncCompilerResult.makeErrorResult(w,
+                                    "AdHoc DDL contains an unsupported DDL statement: " + stmt);
+                        w.completionHandler.onCompletion(errResult);
+                        return;
+                    }
+                    // make sure not to mix drop and create in the same batch for the same table
+                    if (ddlToken.equals("drop")) {
+                        String tableName = SQLLexer.extractDDLTableName(stmt);
+                        if (tableName != null) {
+                            conflictTables.add(tableName);
+                        }
+                    }
+                    else if (ddlToken.equals("create")) {
+                        String tableName = SQLLexer.extractDDLTableName(stmt);
+                        if (tableName != null) {
+                            createdTables.add(tableName);
+                        }
+                    }
                 }
             }
-            if (!hasDDL) {
+            if (hasDDL == null) {
+                // we saw neither DDL or DQL/DML.  Make sure that we get a
+                // response back to the client
+                AsyncCompilerResult errResult =
+                    AsyncCompilerResult.makeErrorResult(w,
+                            "Failed to plan, no SQL statement provided.");
+                w.completionHandler.onCompletion(errResult);
+                return;
+            }
+            else if (!hasDDL) {
                 final AsyncCompilerResult result = compileAdHocPlan(w);
                 w.completionHandler.onCompletion(result);
             }
             else {
+                // We have adhoc DDL.  Is it okay to run it?
+
+                // check for conflicting DDL create/drop table statements.
+                // unhappy if the intersection is empty
+                conflictTables.retainAll(createdTables);
+                if (!conflictTables.isEmpty()) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("AdHoc DDL contains both DROP and CREATE statements for the following table(s):");
+                    for (String tableName : conflictTables) {
+                        sb.append(" ");
+                        sb.append(tableName);
+                    }
+                    sb.append("\nYou cannot DROP and ADD a table with the same name in a single batch "
+                            + "(via @AdHoc). Issue the DROP and ADD statements as separate commands.");
+                    AsyncCompilerResult errResult =
+                            AsyncCompilerResult.makeErrorResult(w, sb.toString());
+                        w.completionHandler.onCompletion(errResult);
+                        return;
+                }
+
+                // Is it forbidden by the replication role and configured schema change method?
+                // master and UAC method chosen:
+                if (!w.onReplica && !w.useAdhocDDL) {
+                    AsyncCompilerResult errResult =
+                        AsyncCompilerResult.makeErrorResult(w,
+                                "Cluster is configured to use @UpdateApplicationCatalog " +
+                                "to change application schema.  AdHoc DDL is forbidden.");
+                    w.completionHandler.onCompletion(errResult);
+                    return;
+                }
+                // Any adhoc DDL on the replica is forbidden (master changes appear as UAC
+                else if (w.onReplica) {
+                    AsyncCompilerResult errResult =
+                        AsyncCompilerResult.makeErrorResult(w,
+                                "AdHoc DDL is forbidden on a DR replica cluster. " +
+                                "Apply schema changes to the master and they will propogate to replicas.");
+                    w.completionHandler.onCompletion(errResult);
+                    return;
+                }
                 final CatalogChangeWork ccw = new CatalogChangeWork(w);
                 dispatchCatalogChangeWork(ccw);
             }
         }
         else if (wrapper.payload instanceof CatalogChangeWork) {
             final CatalogChangeWork w = (CatalogChangeWork)(wrapper.payload);
+            // We have an @UAC.  Is it okay to run it?
+            // If we weren't provided operationBytes, it's a deployment-only change and okay to take
+            // master and adhoc DDL method chosen
+            if (w.invocationName.equals("@UpdateApplicationCatalog") &&
+                w.operationBytes != null && !w.onReplica && w.useAdhocDDL)
+            {
+                AsyncCompilerResult errResult =
+                    AsyncCompilerResult.makeErrorResult(w,
+                            "Cluster is configured to use AdHoc DDL to change application " +
+                            "schema.  Use of @UpdateApplicationCatalog is forbidden.");
+                w.completionHandler.onCompletion(errResult);
+                return;
+            }
+            else if (w.invocationName.equals("@UpdateClasses") && !w.onReplica && !w.useAdhocDDL) {
+                AsyncCompilerResult errResult =
+                    AsyncCompilerResult.makeErrorResult(w,
+                            "Cluster is configured to use @UpdateApplicationCatalog " +
+                            "to change application schema.  Use of @UpdateClasses is forbidden.");
+                w.completionHandler.onCompletion(errResult);
+                return;
+            }
             dispatchCatalogChangeWork(w);
         }
         else {
@@ -184,7 +278,7 @@ public class AsyncCompilerAgent {
         work.completionHandler.onCompletion(result);
     }
 
-    AdHocPlannedStmtBatch compileAdHocPlan(AdHocPlannerWork work) {
+    AsyncCompilerResult compileAdHocPlan(AdHocPlannerWork work) {
 
         // record the catalog version the query is planned against to
         // catch races vs. updateApplicationCatalog.
@@ -233,6 +327,28 @@ public class AsyncCompilerAgent {
         if (!errorMsgs.isEmpty()) {
             errorSummary = StringUtils.join(errorMsgs, "\n");
         }
+
+        // check the parameters count
+        if (work.explainMode == ExplainMode.NONE && work.userParamSet != null) {
+            int totalQuestionMarkParameters = 0;
+            for (AdHocPlannedStatement result: stmts) {
+                totalQuestionMarkParameters += result.getQuestionMarkParameterCount();
+            }
+            if (work.sqlStatements.length > 1 && totalQuestionMarkParameters > 0) {
+                return AsyncCompilerResult.makeErrorResult(work,
+                        String.format("The @AdHoc stored procedure when called with more than one parameter "
+                                + "must be passed a single parameterized SQL statement as its first parameter. "
+                                + "Pass each parameterized SQL statement to a separate callProcedure invocation."));
+            }
+
+            if (totalQuestionMarkParameters != work.userParamSet.length) {
+                return AsyncCompilerResult.makeErrorResult(work,
+                        String.format("Incorrect number of parameters passed: expected %d, passed %d",
+                                totalQuestionMarkParameters, work.userParamSet.length));
+            }
+
+        }
+
         AdHocPlannedStmtBatch plannedStmtBatch = new AdHocPlannedStmtBatch(work,
                                                                            stmts,
                                                                            partitionParamIndex,
@@ -240,6 +356,44 @@ public class AsyncCompilerAgent {
                                                                            partitionParamValue,
                                                                            errorSummary);
 
+        if (adhocLog.isDebugEnabled()) {
+            logBatch(plannedStmtBatch);
+        }
+
         return plannedStmtBatch;
+    }
+
+    /**
+     * Log ad hoc batch info
+     * @param batch  planned statement batch
+     */
+    private void logBatch(final AdHocPlannedStmtBatch batch)
+    {
+        final int numStmts = batch.work.getStatementCount();
+        final int numParams = batch.work.getParameterCount();
+        final String readOnly = batch.readOnly ? "yes" : "no";
+        final String singlePartition = batch.isSinglePartitionCompatible() ? "yes" : "no";
+        final String user = batch.work.user.m_name;
+        final CatalogContext context = (batch.work.catalogContext != null
+                                            ? batch.work.catalogContext
+                                            : VoltDB.instance().getCatalogContext());
+        final String[] groupNames = context.authSystem.getGroupNamesForUser(user);
+        final String groupList = StringUtils.join(groupNames, ',');
+
+        adhocLog.debug(String.format(
+            "=== statements=%d parameters=%d read-only=%s single-partition=%s user=%s groups=[%s]",
+            numStmts, numParams, readOnly, singlePartition, user, groupList));
+        if (batch.work.sqlStatements != null) {
+            for (int i = 0; i < batch.work.sqlStatements.length; ++i) {
+                adhocLog.debug(String.format("Statement #%d: %s", i + 1, batch.work.sqlStatements[i]));
+            }
+        }
+        if (batch.work.userParamSet != null) {
+            for (int i = 0; i < batch.work.userParamSet.length; ++i) {
+                Object value = batch.work.userParamSet[i];
+                final String valueString = (value != null ? value.toString() : "NULL");
+                adhocLog.debug(String.format("Parameter #%d: %s", i + 1, valueString));
+            }
+        }
     }
 }

@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -23,6 +23,7 @@ import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Date;
+import java.util.regex.Pattern;
 
 import org.voltdb.common.Constants;
 import org.voltdb.types.TimestampType;
@@ -105,6 +106,7 @@ public class ParameterConverter {
         return true;
     }
 
+    private static final Pattern thousandSeparator = Pattern.compile("\\,");
     /**
      * Given a string, covert it to a primitive type or return null.
      */
@@ -115,7 +117,7 @@ public class ParameterConverter {
         // detect CSV null
         if (value.equals(Constants.CSV_NULL)) return nullValueForType(expectedClz);
         // remove commas and escape chars
-        value = value.replaceAll("\\,","");
+        value = thousandSeparator.matcher(value).replaceAll("");
 
         try {
             if (expectedClz == long.class) {

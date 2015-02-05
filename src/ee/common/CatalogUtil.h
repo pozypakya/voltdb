@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -90,6 +90,10 @@ bool isExportEnabledForTable(catalog::Database const & database, int32_t tableIn
     }
 
     return false;
+}
+
+bool isTableMaterialized(const catalog::Table &table) {
+    return table.materializer() != NULL;
 }
 
 

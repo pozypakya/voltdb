@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -171,6 +171,9 @@ public abstract class VoltProcedure {
             if (t.getMessage() != null) {
                 message = t.getMessage();
             }
+            else if (t.getCause() != null) {
+                message = t.getCause().getMessage();
+            }
         }
 
         /**
@@ -340,9 +343,9 @@ public abstract class VoltProcedure {
      */
     @Deprecated
     public byte[] voltLoadTable(String clusterName, String databaseName,
-                              String tableName, VoltTable data, boolean returnUniqueViolations)
+                              String tableName, VoltTable data, boolean returnUniqueViolations, boolean shouldDRStream)
     throws VoltAbortException
     {
-        return m_runner.voltLoadTable(clusterName, databaseName, tableName, data, returnUniqueViolations);
+        return m_runner.voltLoadTable(clusterName, databaseName, tableName, data, returnUniqueViolations, shouldDRStream);
     }
 }

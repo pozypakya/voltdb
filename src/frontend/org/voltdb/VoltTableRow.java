@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -50,11 +50,11 @@ import org.voltdb.utils.VoltTypeUtil;
  * <h3>Example</h3>
  *
  * <code>
- * VoltTableRow row = table.fetchRow(5);<br/>
- * System.out.println(row.getString("foo");<br/>
- * row.resetRowPosition();<br/>
- * while (row.advanceRow()) {<br/>
- * &nbsp;&nbsp;&nbsp;&nbsp;System.out.println(row.getLong(7));<br/>
+ * VoltTableRow row = table.fetchRow(5);<br>
+ * System.out.println(row.getString("foo");<br>
+ * row.resetRowPosition();<br>
+ * while (row.advanceRow()) {<br>
+ * &nbsp;&nbsp;&nbsp;&nbsp;System.out.println(row.getLong(7));<br>
  * }
  * </code>
  */
@@ -204,6 +204,7 @@ public abstract class VoltTableRow {
     public boolean advanceToRow(int rowIndex) {
         int rows_to_move = rowIndex - m_activeRowIndex;
         m_activeRowIndex = rowIndex;
+
         if (m_activeRowIndex >= getRowCount())
             return false;
         if (rows_to_move < 0) // this is "advance" to row, don't move backwards

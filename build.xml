@@ -61,6 +61,7 @@
 <property name='build.dir'                   location='obj/${build}' />
 <property name='build.prod.dir'              location='${build.dir}/prod' />
 <property name='build.test.dir'              location='${build.dir}/test' />
+<property name='build.testproc.dir'          location='${build.dir}/testprocs' />
 <property name='build.client.dir'            location='${build.dir}/clientobj' />
 <property name='build.admin.dir'             location='${build.dir}/admin' />
 <property name='raw.dist.dir'                location='${build.dir}' />
@@ -70,9 +71,10 @@
 <property name='src.gpl.dir'                 location='src/frontend' />
 <property name='src.hsqldb.dir'              location='src/hsqldb19b3' />
 <property name='src.test.dir'                location='tests/frontend' />
+<property name='src.testproc.dir'            location='tests/testprocs' />
 <property name='src.hsqldb.test.dir'         location='tests/hsqldb' />
 <property name='src.ee.test.dir'             location='tests/ee' />
-<property name='src.studio.dir'              location='src/frontend/org/voltdb/studio' />
+<property name='src.dbmonitor.dir'           location='src/frontend/org/voltdb/dbmonitor' />
 <property name='build.testoutput.dir'        location='${build.dir}/testoutput' />
 <property name='build.testobjects.dir'       location='${build.dir}/testobjects' />
 <property name='lib.dir'                     location='lib' />
@@ -112,6 +114,11 @@
     <not><isset property="volt.client.memory"/></not>
 </condition>
 
+<!-- Default always round trip DDL in junit. Jenkins will turn this off on master  -->
+<condition property="verifycatalogdebug" value="true">
+    <not><isset property="verifycatalogdebug"/></not>
+</condition>
+
 <!-- Overridden in the Hudson test script. -->
 <property name='junit.haltonfailure'    value='false' />
 <property name="j2se_api" value="http://docs.oracle.com/javase/7/docs/api/"/>
@@ -120,6 +127,7 @@
     <pathelement location='${build.instr.dir}' />
     <pathelement location='${build.client.dir}' />
     <pathelement location='${build.prod.dir}' />
+    <pathelement location='${build.testproc.dir}' />
     <pathelement location='${build.test.dir}' />
     <fileset dir='${lib.dir}'>
         <include name='*.jar' />
@@ -229,7 +237,7 @@ PRIMARY ENTRY POINTS
     description="Compile Java classes and C++ JNI library."
 />
 <target name="check"
-    depends="licensecheck, compile, voltdbipc"
+    depends="licensecheck, default, voltdbipc"
     description="Run Java and C++ JNI testcases." >
     <condition property="timeoutLength" value="${timeoutLength}" else='1800000'>
         <isset property="timeoutLength"/>
@@ -508,6 +516,19 @@ DISTRIBUTION
      populates the core components used by the client distribution. -->
 <target name="dist_internal" depends="dist_internal_core">
 
+	<!-- build the jars for the clients -->
+	<exec dir='examples/voter' executable='/usr/bin/env'><arg line="bash run.sh jars"/></exec>
+	<exec dir='examples/voltkv' executable='/usr/bin/env'><arg line="bash run.sh jars"/></exec>
+	<exec dir='examples/windowing' executable='/usr/bin/env'><arg line="bash run.sh jars"/></exec>
+	<exec dir='examples/windowing-with-ddl' executable='/usr/bin/env'><arg line="bash run.sh jars"/></exec>
+	<exec dir='examples/json-sessions' executable='/usr/bin/env'><arg line="bash run.sh jars"/></exec>
+	<exec dir='examples/uniquedevices' executable='/usr/bin/env'><arg line="bash run.sh jars"/></exec>
+
+    <!-- build the jars for the tutorials -->
+	<exec dir='doc/tutorials/helloworld' executable='/usr/bin/env'><arg line="bash run.sh jars"/></exec>
+	<exec dir='doc/tutorials/helloworldrevisited' executable='/usr/bin/env'><arg line="bash run.sh jars"/></exec>
+	<exec dir='doc/tutorials/auction' executable='/usr/bin/env'><arg line="bash run.sh jars"/></exec>
+
     <!-- populate the stuff not handled by dist_internal_core -->
     <copy todir="${dist.dir}/">
         <fileset dir="." defaultexcludes="yes">
@@ -532,14 +553,6 @@ DISTRIBUTION
     <dist_tools_macro distlabel="" />
 
     <antcall target="copy_pro_bin"/>
-
-    <!-- copy studio.web -->
-    <mkdir dir="${dist.dir}/tools/studio.web" />
-    <copy todir="${dist.dir}/tools/studio.web">
-        <fileset dir="${src.gpl.dir}/org/voltdb/studio" defaultexcludes="yes">
-            <include name="**"/>
-        </fileset>
-    </copy>
 
     <!-- make shell scripts executable -->
     <chmod perm="ugo+rx">
@@ -570,12 +583,6 @@ DISTRIBUTION
         <arg value="${raw.dist.dir}/dist"/>
     </exec>
 
-    <!-- package up studio web trivially -->
-    <zip destfile="${raw.dist.dir}/voltdb-studio.web-${dist.version}.zip">
-        <fileset dir="${src.studio.dir}" defaultexcludes="yes">
-            <include name="**/*" />
-        </fileset>
-    </zip>
 </target>
 
 <target name="dist_client" depends="dist_internal_core"
@@ -606,6 +613,10 @@ DISTRIBUTION
             <include name="examples/voltcache/run.sh"/>
             <include name="examples/voltkv/run.sh"/>
             <include name="examples/voter/run.sh"/>
+            <include name="examples/json-sessions/run.sh"/>
+            <include name="examples/windowing/run.sh"/>
+            <include name="examples/windowing-with-ddl/run.sh"/>
+            <include name="examples/uniquedevices/run.sh"/>
             <include name="bin/sqlcmd"/>
         </fileset>
     </chmod>
@@ -709,10 +720,14 @@ CLEANING
 	description="Remove all compiled and generated files."
 	depends="cleantmp, clean_client, clean_project_gen, clean_deployment_gen,
 	         clean_debian_package, clean_rpm_package, clean_bindoc, clean_other_gen">
-  <exec dir='examples/voter' executable='/usr/bin/env'><arg line="bash run.sh clean"/></exec>
-  <exec dir='examples/voltcache' executable='/usr/bin/env'><arg line="bash run.sh clean"/></exec>
-  <exec dir='examples/voltkv' executable='/usr/bin/env'><arg line="bash run.sh clean"/></exec>
+  <exec dir='examples/voter' executable='/usr/bin/env'><arg line="bash run.sh cleanall"/></exec>
+  <exec dir='examples/json-sessions' executable='/usr/bin/env'><arg line="bash run.sh cleanall"/></exec>
+  <exec dir='examples/windowing' executable='/usr/bin/env'><arg line="bash run.sh cleanall"/></exec>
+  <exec dir='examples/windowing-with-ddl' executable='/usr/bin/env'><arg line="bash run.sh cleanall"/></exec>
+  <exec dir='examples/uniquedevices' executable='/usr/bin/env'><arg line="bash run.sh cleanall"/></exec>
+  <exec dir='examples/voltkv' executable='/usr/bin/env'><arg line="bash run.sh cleanall"/></exec>
   <exec dir='doc/tutorials/auction' executable='/usr/bin/env'><arg line="bash run.sh clean"/></exec>
+  <exec dir='doc/tutorials/helloworldrevisited' executable='/usr/bin/env'><arg line="bash run.sh clean"/></exec>
   <exec dir='doc/tutorials/helloworld' executable='/usr/bin/env'><arg line="bash run.sh clean"/></exec>  <exec dir='.' executable='/bin/sh'>
     <arg line="-c 'rm -rf obj/*'"/>
   </exec>
@@ -940,13 +955,14 @@ JAVA COMPILATION
 <target name="compile_core" depends="compile_client">
     <mkdir dir='${build.prod.dir}' />
     <mkdir dir='${build.test.dir}' />
+    <mkdir dir='${build.testproc.dir}' />
     <exec
         dir='${src.gpl.dir}/org/voltdb/utils'
         executable='${src.gpl.dir}/org/voltdb/utils/generate_logkeys.py'
         failonerror='true' />
     <depend
-        srcdir="${src.hsqldb.dir}:${src.hsqldb.test.dir}:${src.gpl.dir}:${src.test.dir}:${vendor.src.dir}"
-        destdir="${build.prod.dir}:${build.test.dir}"
+        srcdir="${src.hsqldb.dir}:${src.hsqldb.test.dir}:${src.gpl.dir}:${src.test.dir}:${src.testproc.dir}:${vendor.src.dir}"
+        destdir="${build.prod.dir}:${build.test.dir}:${build.testproc.dir}"
         cache="${depcache}">
         <classpath refid="project.classpath" />
     </depend>
@@ -965,8 +981,8 @@ JAVA COMPILATION
         </fileset>
     </copy>
 
-    <copy todir='${build.prod.dir}/org/voltdb/studio'>
-        <fileset dir="${src.gpl.dir}/org/voltdb/studio">
+    <copy todir='${build.prod.dir}/org/voltdb/dbmonitor'>
+        <fileset dir="${src.gpl.dir}/org/voltdb/dbmonitor">
             <include name="**"/>
         </fileset>
     </copy>
@@ -992,10 +1008,21 @@ JAVA COMPILATION
             <include name="**/*.sql"/>
         </fileset>
     </copy>
+    <copy flatten='false' todir='${build.testproc.dir}'>
+        <fileset dir="${src.testproc.dir}">
+            <include name="**/*.sql"/>
+        </fileset>
+    </copy>
 
     <!-- Compressed resources for tests -->
     <copy flatten='false' todir='${build.test.dir}'>
         <fileset dir="${src.test.dir}">
+            <include name="**/*.tar.gz"/>
+        </fileset>
+    </copy>
+
+    <copy flatten='false' todir='${build.testproc.dir}'>
+        <fileset dir="${src.testproc.dir}">
             <include name="**/*.tar.gz"/>
         </fileset>
     </copy>
@@ -1040,6 +1067,7 @@ JAVA COMPILATION
     <invoke-javac srcdir="${src.gpl.dir}" excludes="org/voltcore/**/*.java" />
 
     <!-- compile the individual test directories -->
+    <invoke-javac srcdir="${src.testproc.dir}" destdir='${build.testproc.dir}'/>
     <invoke-javac srcdir="${src.hsqldb.test.dir}" destdir='${build.test.dir}'/>
     <invoke-javac srcdir="${src.test.dir}" destdir='${build.test.dir}'
         excludes="org/voltdb/benchmark/tpcc/JDBCClient.java"/>
@@ -1330,6 +1358,7 @@ TEST CASES
             <jvmarg value="-Xmx256m"/>
             <jvmarg value="-XX:+HeapDumpOnOutOfMemoryError"/>
             <jvmarg value="-XX:-UseSplitVerifier"/>
+            <env key="VERIFY_CATALOG_DEBUG" value="${verifycatalogdebug}"/>
             <env key="VOLTDB_BUILD_DIR" value="${build.dir}"/>
             <env key="TEST_DIR" value="${build.testobjects.dir}" />
             <env key="VOLT_REGRESSIONS" value="${regressions}" />
@@ -1805,20 +1834,25 @@ TEST CASES
         <exec dir="${dist.examples.dir}/@{app}" executable="/usr/bin/env" failonerror='true'>
             <arg value="bash" />
             <arg value="run.sh" />
-            <arg value="srccompile" />
+            <arg value="jars" />
         </exec>
     </sequential>
 </macrodef>
 
 <target name="distcheck" depends='dist'
     description="Verify distribution sample applications compile and run.">
-
-    <echo>checking voltcache</echo>
-    <samplecheck app="voltcache" />
     <echo>checking voltkv</echo>
     <samplecheck app="voltkv" />
     <echo>checking voter</echo>
     <samplecheck app="voter" />
+    <echo>checking json-sessions</echo>
+    <samplecheck app="json-sessions" />
+    <echo>checking windowing</echo>
+    <samplecheck app="windowing" />
+    <echo>checking windowing-with-ddl</echo>
+    <samplecheck app="windowing-with-ddl" />
+    <echo>checking uniquedevices</echo>
+    <samplecheck app="uniquedevices" />
 </target>
 
 <target name='sqlcoverage' depends="ee,compile"
@@ -1949,7 +1983,7 @@ TEST CASES
 </target>
 
 <property name="ptdefaultconfigs"
-         value="json,voter,voltkv,voltcache,cust-report-2012-11-28,ENG-2549,joins,testplans-join,testjoins,aggs,join-order,inlist,indexes"
+         value="json,voter,voltkv,cust-report-2012-11-28,ENG-2549,joins,testplans-join,testjoins,aggs,join-order,inlist,indexes"
    description="default hard-coded set of plannertester configs to run or refresh" />
 
 <target name="plannertester" description="Run plannertester">

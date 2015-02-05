@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -48,18 +48,18 @@ import org.voltdb.compiler.VoltProjectBuilder;
 import org.voltdb.iv2.MpInitiator;
 import org.voltdb.join.BalancePartitionsStatistics;
 import org.voltdb.utils.MiscUtils;
-import org.voltdb_testprocs.regressionsuites.SaveRestoreBase;
 import org.voltdb_testprocs.regressionsuites.malicious.GoSleep;
 
 public class TestStatisticsSuite extends SaveRestoreBase {
 
-    private static int SITES = 2;
-    private static int HOSTS = 3;
-    private static int KFACTOR = MiscUtils.isPro() ? 1 : 0;
-    private static int PARTITIONS = (SITES * HOSTS) / (KFACTOR + 1);
-    private static boolean hasLocalServer = false;
+    private final static int SITES = 2;
+    private final static int HOSTS = 3;
+    private final static int KFACTOR = MiscUtils.isPro() ? 1 : 0;
+    private final static int PARTITIONS = (SITES * HOSTS) / (KFACTOR + 1);
+    private final static boolean hasLocalServer = false;
+    private static StringBuilder m_recentAnalysis = null;
 
-    static final Class<?>[] PROCEDURES =
+    private static final Class<?>[] PROCEDURES =
     {
         GoSleep.class
     };
@@ -69,45 +69,86 @@ public class TestStatisticsSuite extends SaveRestoreBase {
     }
 
     // For the provided table, verify that there is a row for each host in the cluster where
-    // the column designated by 'columnName' has the value 'rowId'.  For example, for
-    // Initiator stats, if columnName is 'PROCEDURE_NAME' and rowId is 'foo', this
+    // the column designated by 'columnName' has the value 'targetValue'.  For example, for
+    // Initiator stats, if columnName is 'PROCEDURE_NAME' and targetValue is 'foo', this
     // will verify that the initiator at each node has seen a procedure invocation for 'foo'
-    public void validateRowSeenAtAllHosts(VoltTable result, String columnName, String rowId,
+    private void validateRowSeenAtAllHosts(VoltTable result, String columnName, String targetValue,
+            boolean enforceUnique)
+    {
+        int hostCount = countHostsProvidingRows(result, columnName, targetValue, enforceUnique);
+        assertEquals(claimRecentAnalysis(), HOSTS, hostCount);
+    }
+
+    private String claimRecentAnalysis() {
+        String result = "No root cause analysis is available for this failure.";
+        if (m_recentAnalysis != null) {
+            result = m_recentAnalysis.toString();
+            m_recentAnalysis = null;
+        }
+        return result;
+    }
+
+    private int countHostsProvidingRows(VoltTable result, String columnName, String targetValue,
             boolean enforceUnique)
     {
         result.resetRowPosition();
         Set<Long> hostsSeen = new HashSet<Long>();
         while (result.advanceRow()) {
-            String procName = result.getString(columnName);
-            if (procName.equalsIgnoreCase(rowId)) {
+            String colValFromRow = result.getString(columnName);
+            if (targetValue.equalsIgnoreCase(colValFromRow)) {
                 Long thisHostId = result.getLong("HOST_ID");
                 if (enforceUnique) {
-                    assertFalse("HOST_ID: " + thisHostId + " seen twice in table looking for " + rowId +
+                    assertFalse("HOST_ID: " + thisHostId + " seen twice in table looking for " + targetValue +
                             " in column " + columnName, hostsSeen.contains(thisHostId));
                 }
                 hostsSeen.add(thisHostId);
             }
         }
-        assertEquals(HOSTS, hostsSeen.size());
+
+        //* Enable this to force a failure with diagnostics */ hostsSeen.add(123456789L);
+
+        // Before possibly failing an assert, prepare to report details of the non-conforming result.
+        m_recentAnalysis = null;
+        if (HOSTS != hostsSeen.size()) {
+            m_recentAnalysis = new StringBuilder();
+            m_recentAnalysis.append("Failure follows from these results:\n");
+            Set<Long> seenAgain = new HashSet<Long>();
+            result.resetRowPosition();
+            while (result.advanceRow()) {
+                String colValFromRow = result.getString(columnName);
+                Long thisHostId = result.getLong("HOST_ID");
+                String rowStatus = "Found a non-match";
+                if (targetValue.equalsIgnoreCase(colValFromRow)) {
+                    if (seenAgain.add(thisHostId)) {
+                        rowStatus = "Added a match";
+                    } else {
+                        rowStatus = "Duplicated a match";
+                    }
+                }
+                m_recentAnalysis.append(rowStatus +
+                        " at host " + thisHostId + " for " + columnName + " " + colValFromRow + "\n");
+            }
+        }
+        return hostsSeen.size();
     }
 
     // For the provided table, verify that there is a row for each site in the cluster where
-    // the column designated by 'columnName' has the value 'rowId'.  For example, for
-    // Table stats, if columnName is 'TABLE_NAME' and rowId is 'foo', this
+    // the column designated by 'columnName' has the value 'targetValue'.  For example, for
+    // Table stats, if columnName is 'TABLE_NAME' and targetValue is 'foo', this
     // will verify that each site has returned results for table 'foo'
-    public boolean validateRowSeenAtAllSites(VoltTable result, String columnName, String rowId,
+    private boolean validateRowSeenAtAllSites(VoltTable result, String columnName, String targetValue,
             boolean enforceUnique)
     {
         result.resetRowPosition();
         Set<Long> sitesSeen = new HashSet<Long>();
         while (result.advanceRow()) {
-            String procName = result.getString(columnName);
-            if (procName.equalsIgnoreCase(rowId)) {
+            String colValFromRow = result.getString(columnName);
+            if (targetValue.equalsIgnoreCase(colValFromRow)) {
                 long hostId = result.getLong("HOST_ID");
                 long thisSiteId = result.getLong("SITE_ID");
                 thisSiteId |= hostId << 32;
                 if (enforceUnique) {
-                    assertFalse("SITE_ID: " + thisSiteId + " seen twice in table looking for " + rowId +
+                    assertFalse("SITE_ID: " + thisSiteId + " seen twice in table looking for " + targetValue +
                             " in column " + columnName, sitesSeen.contains(thisSiteId));
                 }
                 sitesSeen.add(thisSiteId);
@@ -117,18 +158,18 @@ public class TestStatisticsSuite extends SaveRestoreBase {
     }
 
     // For the provided table, verify that there is a row for each partition in the cluster where
-    // the column designated by 'columnName' has the value 'rowId'.
-    public void validateRowSeenAtAllPartitions(VoltTable result, String columnName, String rowId,
+    // the column designated by 'columnName' has the value 'targetValue'.
+    private void validateRowSeenAtAllPartitions(VoltTable result, String columnName, String targetValue,
             boolean enforceUnique)
     {
         result.resetRowPosition();
         Set<Long> partsSeen = new HashSet<Long>();
         while (result.advanceRow()) {
-            String procName = result.getString(columnName);
-            if (procName.equalsIgnoreCase(rowId)) {
+            String colValFromRow = result.getString(columnName);
+            if (targetValue.equalsIgnoreCase(colValFromRow)) {
                 long thisPartId = result.getLong("PARTITION_ID");
                 if (enforceUnique) {
-                    assertFalse("PARTITION_ID: " + thisPartId + " seen twice in table looking for " + rowId +
+                    assertFalse("PARTITION_ID: " + thisPartId + " seen twice in table looking for " + targetValue +
                             " in column " + columnName, partsSeen.contains(thisPartId));
                 }
                 partsSeen.add(thisPartId);
@@ -387,7 +428,7 @@ public class TestStatisticsSuite extends SaveRestoreBase {
         System.out.println("\n\nTESTING MEMORY STATS\n\n\n");
         Client client  = getFullyConnectedClient();
 
-        ColumnInfo[] expectedSchema = new ColumnInfo[12];
+        ColumnInfo[] expectedSchema = new ColumnInfo[14];
         expectedSchema[0] = new ColumnInfo("TIMESTAMP", VoltType.BIGINT);
         expectedSchema[1] = new ColumnInfo("HOST_ID", VoltType.INTEGER);
         expectedSchema[2] = new ColumnInfo("HOSTNAME", VoltType.STRING);
@@ -400,6 +441,8 @@ public class TestStatisticsSuite extends SaveRestoreBase {
         expectedSchema[9] = new ColumnInfo("STRINGMEMORY", VoltType.INTEGER);
         expectedSchema[10] = new ColumnInfo("TUPLECOUNT", VoltType.BIGINT);
         expectedSchema[11] = new ColumnInfo("POOLEDMEMORY", VoltType.BIGINT);
+        expectedSchema[12] = new ColumnInfo("PHYSICALMEMORY", VoltType.BIGINT);
+        expectedSchema[13] = new ColumnInfo("JAVAMAXHEAP", VoltType.INTEGER);
         VoltTable expectedTable = new VoltTable(expectedSchema);
 
         VoltTable[] results = null;
@@ -417,6 +460,35 @@ public class TestStatisticsSuite extends SaveRestoreBase {
         results[0].advanceRow();
         // Hacky, on a single local cluster make sure that all 'nodes' are present.
         // MEMORY stats lacks a common string across nodes, but we can hijack the hostname in this case.
+        validateRowSeenAtAllHosts(results[0], "HOSTNAME", results[0].getString("HOSTNAME"), true);
+    }
+
+    public void testCpuStatistics() throws Exception {
+        System.out.println("\n\nTESTING CPU STATS\n\n\n");
+        Client client  = getFullyConnectedClient();
+
+        ColumnInfo[] expectedSchema = new ColumnInfo[4];
+        expectedSchema[0] = new ColumnInfo("TIMESTAMP", VoltType.BIGINT);
+        expectedSchema[1] = new ColumnInfo("HOST_ID", VoltType.INTEGER);
+        expectedSchema[2] = new ColumnInfo("HOSTNAME", VoltType.STRING);
+        expectedSchema[3] = new ColumnInfo("PERCENT_USED", VoltType.BIGINT);
+        VoltTable expectedTable = new VoltTable(expectedSchema);
+
+        VoltTable[] results = null;
+
+        //
+        // cpu
+        //
+        // give time to seed the stats cache?
+        Thread.sleep(1000);
+        results = client.callProcedure("@Statistics", "cpu", 0).getResults();
+        System.out.println("Node cpu statistics table: " + results[0].toString());
+        // one aggregate table returned
+        assertEquals(1, results.length);
+        validateSchema(results[0], expectedTable);
+        results[0].advanceRow();
+        // Hacky, on a single local cluster make sure that all 'nodes' are present.
+        // CPU stats lacks a common string across nodes, but we can hijack the hostname in this case.
         validateRowSeenAtAllHosts(results[0], "HOSTNAME", results[0].getString("HOSTNAME"), true);
     }
 
@@ -874,20 +946,24 @@ public class TestStatisticsSuite extends SaveRestoreBase {
         expectedSchema[7] = new ColumnInfo("OUTSTANDING_RESPONSE_MESSAGES", VoltType.BIGINT);
         expectedSchema[8] = new ColumnInfo("OUTSTANDING_TRANSACTIONS", VoltType.BIGINT);
         VoltTable expectedTable = new VoltTable(expectedSchema);
-
-        VoltTable[] results = null;
+        int patientRetries = 2;
+        int hostsHeardFrom = 0;
         //
         // LIVECLIENTS
         //
-        results = client.callProcedure("@Statistics", "LIVECLIENTS", 0).getResults();
-        // one aggregate table returned
-        assertEquals(1, results.length);
-        System.out.println("Test LIVECLIENTS table: " + results[0].toString());
-        validateSchema(results[0], expectedTable);
-        // Hacky, on a single local cluster make sure that all 'nodes' are present.
-        // LiveClients stats lacks a common string across nodes, but we can hijack the hostname in this case.
-        results[0].advanceRow();
-        validateRowSeenAtAllHosts(results[0], "HOSTNAME", results[0].getString("HOSTNAME"), true);
+        do { // loop until we get the desired answer or lose patience waiting out possible races.
+            VoltTable[] results = client.callProcedure("@Statistics", "LIVECLIENTS", 0).getResults();
+            // one aggregate table returned
+            assertEquals(1, results.length);
+            System.out.println("Test LIVECLIENTS table: " + results[0].toString());
+            validateSchema(results[0], expectedTable);
+            // Hacky, on a single local cluster make sure that all 'nodes' are present.
+            // LiveClients stats lacks a common string across nodes, but we can hijack the hostname in this case.
+            results[0].advanceRow();
+            hostsHeardFrom =
+                    countHostsProvidingRows(results[0], "HOSTNAME", results[0].getString("HOSTNAME"), true);
+        } while ((hostsHeardFrom < HOSTS) && (--patientRetries) > 0);
+        assertEquals(claimRecentAnalysis(), HOSTS, hostsHeardFrom);
     }
 
     public void testStarvationStatistics() throws Exception {
@@ -977,9 +1053,9 @@ public class TestStatisticsSuite extends SaveRestoreBase {
         // LIVECLIENTS
         //
         results = client.callProcedure("@Statistics", "MANAGEMENT", 0).getResults();
-        // six aggregate tables returned.  Assume that we have selected the right
+        // eight aggregate tables returned.  Assume that we have selected the right
         // subset of stats internally, just check that we get stuff.
-        assertEquals(7, results.length);
+        assertEquals(8, results.length);
     }
 
     class RebalanceStatsChecker
@@ -1119,7 +1195,10 @@ public class TestStatisticsSuite extends SaveRestoreBase {
         project.addProcedures(PROCEDURES);
 
         /*
-         * Add a cluster configuration for sysprocs too
+         * Create a cluster configuration.
+         * Some of the sysproc results come back a little strange when applied to a cluster that is being
+         * simulated through LocalCluster -- all the hosts have the same HOSTNAME, just different host ids.
+         * So, these tests shouldn't rely on the usual uniqueness of host names in a cluster.
          */
         config = new LocalCluster("statistics-cluster.jar", TestStatisticsSuite.SITES,
                 TestStatisticsSuite.HOSTS, TestStatisticsSuite.KFACTOR,

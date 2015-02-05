@@ -23,7 +23,6 @@
 DELETE FROM @dmltable
 INSERT INTO @dmltable VALUES (@insertvals)
 
-
 -- alias fun
 -- ticket 231
 SELECT -8, A._variable[#arg numeric] FROM @fromtables A WHERE @optionalfn(A.__[#arg] + 5   )        > @comparableconstant
@@ -79,13 +78,34 @@ SELECT     _distinctableagg(DISTINCT @optionalfn(        A._variable[@columntype
 SELECT     @agg(                     @optionalfn(        A._variable[@columntype]     ))                                              AS Q16 FROM @fromtables A WHERE @columnpredicate
 -- These test that the fixed issue eng-909 -- combining DISTINCT and non-DISTINCT aggs has not regressed.
 SELECT     _distinctableagg(DISTINCT @optionalfn(        A._variable[@columntype]     )), @agg(            A._variable[@columntype] ) AS Q18 FROM @fromtables A
-SELECT 19, _distinctableagg(DISTINCT                     A._variable[@columntype]      ), @agg(@optionalfn(A._variable[@columntype]))        FROM @fromtables A
+SELECT     _distinctableagg(DISTINCT                     A._variable[@columntype]      ), @agg(@optionalfn(A._variable[@columntype])) AS Q19 FROM @fromtables A
 SELECT 20,                                               A._variable[#GB @columntype]   , @agg(@optionalfn(A._variable[@columntype]))        FROM @fromtables A GROUP BY         A.__[#GB]
 SELECT 21,                           @optionalfn(        A._variable[#GB @columntype] ) , @agg(            A._variable[@columntype] )        FROM @fromtables A GROUP BY         A.__[#GB]
 SELECT 22,                           @optionalfn(@onefun(A._variable[#GB @columntype])) , @agg(            A._variable[@columntype] )        FROM @fromtables A GROUP BY @onefun(A.__[#GB])
+-- multiple column group by
+SELECT 23,               A._variable[#GB1 @columntype],  A._variable[#GB2 @columntype]   , @agg(           A._variable[@columntype])         FROM @fromtables A GROUP BY         A.__[#GB1], A.__[#GB2]
 
-SELECT     @agg(                     @optionalfn(        A._variable[@columntype]     )), @agg(@optionalfn(A._variable[@columntype])) AS Q23 FROM @fromtables A
-SELECT     @agg(                     @optionalfn(        A._variable[@columntype]     )), COUNT(*)                                    AS Q24 FROM @fromtables A
+SELECT     @agg(                     @optionalfn(        A._variable[@columntype]     )), @agg(@optionalfn(A._variable[@columntype])) AS Q24 FROM @fromtables A
+SELECT     @agg(                     @optionalfn(        A._variable[@columntype]     )), COUNT(*)                                    AS Q25 FROM @fromtables A
+
+-- group by alias (50 - 55)
+SELECT 50,                           @optionalfn(@onefun(A._variable[#GB @columntype])) as tag , @agg(            A._variable[@columntype] )        FROM @fromtables A GROUP BY tag
+SELECT 51,                           A._variable[#GB @columntype] as tag ,                       @agg(            A._variable[@columntype] )        FROM @fromtables A GROUP BY tag
+SELECT 52,              @optionalfn(@onefun(A._variable[#GB @columntype])) as tag1,  A._variable[@columntype] as tag2,  @agg(           A._variable[@columntype])         FROM @fromtables A GROUP BY        tag2, tag1
+
+-- DISTINCT expression (56 - 60)
+-- basic select template has covered multiple columns distinct
+SELECT DISTINCT @optionalfn(A._variable[@columntype]) AS C56, A._variable FROM @fromtables A 
+SELECT DISTINCT @onefun(A._variable[@columntype]) AS C56, A._variable FROM @fromtables A ORDER BY 1, 2 LIMIT 10 
+
+-- Edge case: table aggregate with DISTINCT
+SELECT DISTINCT COUNT(*) FROM @fromtables A 
+SELECT DISTINCT @agg( A._variable[@columntype] ), COUNT(*)  FROM   @fromtables A 
+
+-- DISTINCT on GROUP BY
+SELECT DISTINCT   @agg(@optionalfn(A._variable[@columntype]))                                 FROM @fromtables A GROUP BY         A.__[#GB]
+SELECT DISTINCT   A._variable[#GB1 @columntype],  @agg(     A._variable[@columntype])         FROM @fromtables A GROUP BY         A.__[#GB1], A.__[#GB2]
+SELECT DISTINCT   A._variable[#GB1 @columntype],  @agg(     A._variable[@columntype])         FROM @fromtables A GROUP BY         A.__[#GB1], A.__[#GB2] ORDER BY 1, 2 LIMIT 5
 
 -- update
 -- compare two cols

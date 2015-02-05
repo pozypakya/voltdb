@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -121,7 +121,7 @@ public class Inits {
             m_isRejoin = false;
         }
         m_threadCount = threadCount;
-        m_deployment = rvdb.m_deployment;
+        m_deployment = rvdb.m_catalogContext.getDeployment();
 
         // find all the InitWork subclasses using reflection and load them up
         Class<?>[] declaredClasses = Inits.class.getDeclaredClasses();
@@ -307,17 +307,16 @@ public class Inits {
                     long catalogTxnId;
                     catalogTxnId = TxnEgo.makeZero(MpInitiator.MP_INIT_PID).getTxnId();
 
-                    byte[] catalogHash = CatalogUtil.makeCatalogOrDeploymentHash(catalogBytes);
+                    // Need to get the deployment bytes from the starter catalog context
+                    byte[] deploymentBytes = m_rvdb.getCatalogContext().getDeploymentBytes();
 
                     // publish the catalog bytes to ZK
-                    CatalogUtil.uploadCatalogToZK(
+                    CatalogUtil.updateCatalogToZK(
                             m_rvdb.getHostMessenger().getZK(),
                             0, catalogTxnId,
                             catalogUniqueId,
-                            catalogHash,
                             catalogBytes,
-                            // The deployment hash was generated for the starter catalog, reuse it
-                            m_rvdb.m_catalogContext.deploymentHash);
+                            deploymentBytes);
                 }
                 catch (IOException e) {
                     VoltDB.crashGlobalVoltDB("Unable to distribute catalog.", false, e);
@@ -349,46 +348,47 @@ public class Inits {
                 catch (Exception e) {
                     VoltDB.crashLocalVoltDB("System was interrupted while waiting for a catalog.", false, null);
                 }
-            } while (catalogStuff == null);
+            } while (catalogStuff == null || catalogStuff.catalogBytes.length == 0);
 
+            String serializedCatalog = null;
+            byte[] catalogJarBytes = catalogStuff.catalogBytes;
             try {
-                Pair<String, String> loadResults = CatalogUtil.loadAndUpgradeCatalogFromJar(catalogStuff.bytes, hostLog);
-                m_rvdb.m_serializedCatalog = loadResults.getFirst();
+                Pair<InMemoryJarfile, String> loadResults =
+                    CatalogUtil.loadAndUpgradeCatalogFromJar(catalogStuff.catalogBytes);
+                serializedCatalog =
+                    CatalogUtil.getSerializedCatalogStringFromJar(loadResults.getFirst());
+                catalogJarBytes = loadResults.getFirst().getFullJarBytes();
             } catch (IOException e) {
                 VoltDB.crashLocalVoltDB("Unable to load catalog", false, e);
             }
 
-            if ((m_rvdb.m_serializedCatalog == null) || (m_rvdb.m_serializedCatalog.length() == 0))
+            if ((serializedCatalog == null) || (serializedCatalog.length() == 0))
                 VoltDB.crashLocalVoltDB("Catalog loading failure", false, null);
 
             /* N.B. node recovery requires discovering the current catalog version. */
             Catalog catalog = new Catalog();
-            catalog.execute(m_rvdb.m_serializedCatalog);
+            catalog.execute(serializedCatalog);
+            serializedCatalog = null;
 
             // note if this fails it will print an error first
-            try {
-                //This is where we compile real catalog and create runtime catalog context. To validate deployment
-                //we compile and create a starter context which uses a placeholder catalog.
-                long result = CatalogUtil.compileDeployment(catalog, m_deployment, true, false);
-                if (result < 0) {
-                    hostLog.fatal("Error parsing deployment file");
-                    VoltDB.crashLocalVoltDB("Error parsing deployment file");
-                }
-            } catch (Exception e) {
-                hostLog.fatal("Error parsing deployment file", e);
-                VoltDB.crashLocalVoltDB("Error parsing deployment file", true, e);
+            // This is where we compile real catalog and create runtime
+            // catalog context. To validate deployment we compile and create
+            // a starter context which uses a placeholder catalog.
+            String result = CatalogUtil.compileDeployment(catalog, m_deployment, false);
+            if (result != null) {
+                hostLog.fatal(result);
+                VoltDB.crashLocalVoltDB(result);
             }
 
             try {
-                m_rvdb.m_serializedCatalog = catalog.serialize();
                 m_rvdb.m_catalogContext = new CatalogContext(
                         catalogStuff.txnId,
                         catalogStuff.uniqueId,
                         catalog,
-                        catalogStuff.bytes,
-                        // Our starter catalog has set the deployment hash, just yoink it out for now
-                        m_rvdb.m_catalogContext.deploymentHash,
-                        catalogStuff.version, -1);
+                        catalogJarBytes,
+                        // Our starter catalog has set the deployment stuff, just yoink it out for now
+                        m_rvdb.m_catalogContext.getDeploymentBytes(),
+                        catalogStuff.version);
             } catch (Exception e) {
                 VoltDB.crashLocalVoltDB("Error agreeing on starting catalog version", true, e);
             }
@@ -460,7 +460,7 @@ public class Inits {
             boolean success = false;
             for (; true; httpPort++) {
                 try {
-                    m_rvdb.m_adminListener = new HTTPAdminListener(m_rvdb.m_jsonEnabled, httpInterface, httpPort);
+                    m_rvdb.m_adminListener = new HTTPAdminListener(m_rvdb.m_jsonEnabled, httpInterface, httpPort, mustListen);
                     success = true;
                     break;
                 } catch (Exception e1) {
@@ -721,7 +721,6 @@ public class Inits {
                 }
 
                 m_rvdb.m_globalServiceElector.registerService(m_rvdb.m_restoreAgent);
-                m_rvdb.m_restoreAgent.setCatalogContext(m_rvdb.m_catalogContext);
                 // Generate plans and get (hostID, catalogPath) pair
                 Pair<Integer,String> catalog = m_rvdb.m_restoreAgent.findRestoreCatalog();
 

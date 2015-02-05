@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -44,6 +44,7 @@ import org.voltdb.VoltProcedure.VoltAbortException;
 import org.voltdb.VoltTable;
 import org.voltdb.catalog.Cluster;
 import org.voltdb.catalog.Database;
+import org.voltdb.catalog.Procedure;
 import org.voltdb.dtxn.SiteTracker;
 import org.voltdb.dtxn.TransactionState;
 import org.voltdb.dtxn.UndoAction;
@@ -149,7 +150,9 @@ public class MpRoSite implements Runnable, SiteProcedureConnection
 
         @Override
         public byte[] getCatalogHash() {
-            throw new RuntimeException("Not needed for RO MP Site, shouldn't be here.");
+            // AdHoc invocations need to be able to check the hash of the current catalog
+            // against the hash of the catalog they were planned against.
+            return m_context.getCatalogHash();
         }
 
         @Override
@@ -227,6 +230,10 @@ public class MpRoSite implements Runnable, SiteProcedureConnection
             throw new RuntimeException("RO MP Site doesn't do this, shouldn't be here.");
         }
 
+        @Override
+        public Procedure ensureDefaultProcLoaded(String procName) {
+            throw new RuntimeException("RO MP Site doesn't do this, shouldn't be here.");
+        }
     };
 
     /** Create a new RO MP execution site */
@@ -336,15 +343,16 @@ public class MpRoSite implements Runnable, SiteProcedureConnection
     }
 
     @Override
-    public byte[] loadTable(long txnId, String clusterName, String databaseName,
-            String tableName, VoltTable data, boolean returnUniqueViolations,
+    public byte[] loadTable(long txnId, long spHandle, String clusterName, String databaseName,
+            String tableName, VoltTable data, boolean returnUniqueViolations, boolean shouldDRStream,
             boolean undo) throws VoltAbortException
     {
         throw new RuntimeException("RO MP Site doesn't do this, shouldn't be here.");
     }
 
     @Override
-    public byte[] loadTable(long spHandle, int tableId, VoltTable data, boolean returnUniqueViolations,
+    public byte[] loadTable(long txnId, long spHandle, int tableId, VoltTable data, boolean returnUniqueViolations,
+            boolean shouldDRStream,
             boolean undo)
     {
         throw new RuntimeException("RO MP Site doesn't do this, shouldn't be here.");
@@ -453,10 +461,16 @@ public class MpRoSite implements Runnable, SiteProcedureConnection
     }
 
     @Override
-    public VoltTable[] executePlanFragments(int numFragmentIds,
-            long[] planFragmentIds, long[] inputDepIds,
-            Object[] parameterSets, long spHandle, long uniqueId, boolean readOnly)
-            throws EEException
+    public VoltTable[] executePlanFragments(
+            int numFragmentIds,
+            long[] planFragmentIds,
+            long[] inputDepIds,
+            Object[] parameterSets,
+            String[] sqlTexts,
+            long txnId,
+            long spHandle,
+            long uniqueId,
+            boolean readOnly) throws EEException
     {
         throw new RuntimeException("RO MP Site doesn't do this, shouldn't be here.");
     }
@@ -514,5 +528,10 @@ public class MpRoSite implements Runnable, SiteProcedureConnection
     public void notifyOfSnapshotNonce(String nonce, long snapshotSpHandle) {
         // TODO Auto-generated method stub
 
+    }
+
+    @Override
+    public void applyBinaryLog(byte log[]) {
+        throw new UnsupportedOperationException("RO MP Site doesn't do this, shouldn't be here");
     }
 }

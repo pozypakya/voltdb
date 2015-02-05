@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -21,6 +21,20 @@ import org.voltdb.VoltType;
 import org.voltdb.types.ExpressionType;
 import org.voltdb.utils.VoltTypeUtil;
 
+/**
+ * An instance of OperatorExpression is one of the following:
+ *   - + (add)
+ *   - - (subtract)
+ *   - * (multiply)
+ *   - / (divide)
+ *   - % (modulus)
+ *   - || (concat)
+ *   - is null
+ *   - not
+ *   - cast(... as type)
+ *   - case when
+ *   - alternative (unsupported?)
+ */
 public class OperatorExpression extends AbstractExpression {
     public OperatorExpression(ExpressionType type) {
         super(type);
@@ -75,8 +89,7 @@ public class OperatorExpression extends AbstractExpression {
     @Override
     public void refineValueType(VoltType neededType, int neededSize)
     {
-        ExpressionType type = getExpressionType();
-        if (type == ExpressionType.OPERATOR_IS_NULL || type == ExpressionType.OPERATOR_NOT) {
+        if (! needsRightExpression()) {
             return;
         }
         // The intent here is to allow operands to have the maximum flexibility given the

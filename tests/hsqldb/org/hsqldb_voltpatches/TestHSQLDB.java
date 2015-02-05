@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -266,6 +266,20 @@ public class TestHSQLDB extends TestCase {
         }
         assertFalse(xml == null);
         System.out.println(xml);
+    }
+
+    public void testInsertIntoSelectFrom() {
+        HSQLInterface hsql = setupTPCCDDL();
+        assertNotNull(hsql);
+
+        String sql = "INSERT INTO new_order (NO_O_ID, NO_D_ID, NO_W_ID) SELECT O_ID, O_D_ID+1, CAST(? AS INTEGER) FROM ORDERS;";
+        VoltXMLElement xml = null;
+        try {
+            xml = hsql.getXMLCompiledStatement(sql);
+        } catch (HSQLParseException e1) {
+            e1.printStackTrace();
+        }
+        assertNotNull(xml);
     }
 
     /*public void testSimpleSQL() {

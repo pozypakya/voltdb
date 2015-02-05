@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -26,7 +26,6 @@ package org.voltdb.regressionsuites;
 import java.io.IOException;
 
 import org.voltdb.BackendTarget;
-import org.voltdb.VoltProcedure;
 import org.voltdb.VoltTable;
 import org.voltdb.VoltType;
 import org.voltdb.client.Client;
@@ -35,9 +34,11 @@ import org.voltdb.client.NoConnectionsException;
 import org.voltdb.client.ProcCallException;
 import org.voltdb.client.ProcedureCallback;
 import org.voltdb.compiler.VoltProjectBuilder;
+import org.voltdb.types.TimestampType;
 import org.voltdb_testprocs.regressionsuites.fixedsql.Insert;
 import org.voltdb_testprocs.regressionsuites.fixedsql.TestENG1232;
 import org.voltdb_testprocs.regressionsuites.fixedsql.TestENG1232_2;
+import org.voltdb_testprocs.regressionsuites.fixedsql.TestENG2423;
 
 /**
  * Actual regression tests for SQL that I found that was broken and
@@ -47,17 +48,9 @@ import org.voltdb_testprocs.regressionsuites.fixedsql.TestENG1232_2;
 
 public class TestFixedSQLSuite extends RegressionSuite {
 
-    /**
-     * Inner class procedure to see if we can invoke it.
-     */
-    public static class InnerProc extends VoltProcedure {
-        public long run() {
-            return 0L;
-        }
-    }
-
     /** Procedures used by this suite */
-    static final Class<?>[] PROCEDURES = { Insert.class, TestENG1232.class, TestENG1232_2.class, InnerProc.class };
+    static final Class<?>[] PROCEDURES = { Insert.class, TestENG1232.class, TestENG1232_2.class,
+        TestENG2423.InnerProc.class };
 
     static final int VARCHAR_VARBINARY_THRESHOLD = 100;
 
@@ -1242,11 +1235,11 @@ public class TestFixedSQLSuite extends RegressionSuite {
     // make sure we can call an inner proc
     public void testTicket2423() throws NoConnectionsException, IOException, ProcCallException, InterruptedException {
         Client client = getClient();
-        client.callProcedure("TestFixedSQLSuite$InnerProc");
+        client.callProcedure("TestENG2423$InnerProc");
         releaseClient(client);
         // get it again to make sure the server is all good
         client = getClient();
-        client.callProcedure("TestFixedSQLSuite$InnerProc");
+        client.callProcedure("TestENG2423$InnerProc");
     }
 
     // Ticket: ENG-5151
@@ -1667,6 +1660,203 @@ public class TestFixedSQLSuite extends RegressionSuite {
 
     }
 
+    // This is a regression test for ENG-6792
+    public void testInlineVarcharAggregation() throws IOException, ProcCallException {
+        Client client = getClient();
+        ClientResponse cr;
+
+        cr = client.callProcedure("VARCHARTB.insert",  1, "zz", "panda");
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        cr = client.callProcedure("VARCHARTB.insert", 6, "a", "panda");
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        cr = client.callProcedure("VARCHARTB.insert", 7, "mm", "panda");
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+
+        cr = client.callProcedure("VARCHARTB.insert",  8, "z", "orangutan");
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        cr = client.callProcedure("VARCHARTB.insert", 9, "aa", "orangutan");
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        cr = client.callProcedure("VARCHARTB.insert", 10, "n", "orangutan");
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+
+        cr = client.callProcedure("@AdHoc", "select max(var2), min(var2) from VarcharTB");
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        VoltTable vt = cr.getResults()[0];
+        assertTrue(vt.advanceRow());
+        assertEquals("zz", vt.getString(0));
+        assertEquals("a", vt.getString(1));
+
+        // Hash aggregation may have the same problem, so let's
+        // test it here as well.
+        String sql = "select var80, max(var2) as maxvar2, min(var2) as minvar2 " +
+                "from VarcharTB " +
+                "group by var80 " +
+                "order by maxvar2, minvar2";
+                cr = client.callProcedure("@AdHoc", sql);
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        vt = cr.getResults()[0];
+        assertTrue(vt.advanceRow());
+
+        // row 1: panda, zz, a
+        // row 2: orangutan, z, aa
+        assertEquals("orangutan", vt.getString(0));
+        assertEquals("z", vt.getString(1));
+        assertEquals("aa", vt.getString(2));
+
+        assertTrue(vt.advanceRow());
+        assertEquals("panda", vt.getString(0));
+        assertEquals("zz", vt.getString(1));
+        assertEquals("a", vt.getString(2));
+
+        cr = client.callProcedure("PWEE_WITH_INDEX.insert", 0, "MM", 88);
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        cr = client.callProcedure("PWEE_WITH_INDEX.insert", 1, "ZZ", 88);
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        cr = client.callProcedure("PWEE_WITH_INDEX.insert", 2, "AA", 88);
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        cr = client.callProcedure("PWEE_WITH_INDEX.insert", 3, "NN", 88);
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+
+        cr = client.callProcedure("@AdHoc", "select num, max(wee), min(wee) " +
+                "from pwee_with_index group by num order by num");
+        assertEquals(ClientResponse.SUCCESS, cr.getStatus());
+        vt = cr.getResults()[0];
+        assertTrue(vt.advanceRow());
+        assertEquals("ZZ", vt.getString(1));
+        assertEquals("AA", vt.getString(2));
+    }
+
+    // Bug: parser drops extra predicates over certain numbers e.g. 10.
+    public void testENG6870() throws IOException, ProcCallException {
+        System.out.println("test ENG6870...");
+
+        Client client = this.getClient();
+        VoltTable vt;
+        String sql;
+
+        client.callProcedure("ENG6870.insert",
+                1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, null, 1, 1);
+
+        client.callProcedure("ENG6870.insert",
+                2, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1);
+
+        client.callProcedure("ENG6870.insert",
+                3, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1);
+
+        sql = "SELECT COUNT(*) FROM ENG6870 "
+                + "WHERE C14 = 1 AND C1 IS NOT NULL AND C2 IS NOT NULL "
+                + "AND C5  = 3 AND C7 IS NOT NULL AND C8 IS NOT NULL "
+                + "AND C0 IS NOT NULL AND C10 IS NOT NULL "
+                + "AND C11 IS NOT NULL AND C13 IS NOT NULL  "
+                + "AND C12 IS NOT NULL;";
+        vt = client.callProcedure("@AdHoc", sql).getResults()[0];
+        System.err.println(vt);
+        validateTableOfScalarLongs(vt, new long[]{0});
+    }
+
+    public void testInsertWithCast() throws Exception {
+        Client client = getClient();
+        client.callProcedure("@AdHoc", "delete from p1");
+
+        // in ENG-5929, this would cause a null pointer exception,
+        // because OperatorException.refineValueType was not robust to casts.
+        String stmt = "insert into p1 (id, num) values (1, cast(1 + ? as integer))";
+        VoltTable vt = client.callProcedure("@AdHoc", stmt, 100).getResults()[0];
+        validateTableOfScalarLongs(vt, new long[] {1});
+
+        // This should even work when assigning the expression to the partitioning column:
+        // Previously this would fail with a mispartitioned tuple error.
+        stmt = "insert into p1 (id, num) values (cast(1 + ? as integer), 1)";
+        vt = client.callProcedure("@AdHoc", stmt, 100).getResults()[0];
+        validateTableOfScalarLongs(vt, new long[] {1});
+
+        stmt = "select id, num from p1 order by id";
+        vt = client.callProcedure("@AdHoc", stmt).getResults()[0];
+        validateTableOfLongs(vt, new long[][] {{1, 101}, {101, 1}});
+
+    }
+
+    public void testENG6926() throws Exception {
+        // Aggregation of a joined table was not ordered
+        // according to ORDER BY clause when the OB column
+        // was not first in the select list.
+
+        Client client = getClient();
+
+        String insStmt = "insert into eng6926_ipuser(ip, countrycode, province) values (?, ?, ?)";
+        client.callProcedure("@AdHoc", insStmt, "23.101.135.101", "US", "District of Columbia");
+        client.callProcedure("@AdHoc", insStmt, "23.101.142.5", "US", "District of Columbia");
+        client.callProcedure("@AdHoc", insStmt, "23.101.143.89", "US", "District of Columbia");
+        client.callProcedure("@AdHoc", insStmt, "23.101.138.62", "US", "District of Columbia");
+        client.callProcedure("@AdHoc", insStmt, "69.67.23.26", "US", "Minnesota");
+        client.callProcedure("@AdHoc", insStmt, "198.179.137.202", "US", "Minnesota");
+        client.callProcedure("@AdHoc", insStmt, "23.99.35.61", "US", "Washington");
+
+        insStmt = "insert into eng6926_hits(ip, week) values (?, ?)";
+        client.callProcedure("@AdHoc", insStmt, "23.101.135.101", 20140914);
+        client.callProcedure("@AdHoc", insStmt, "23.101.142.5", 20140914);
+        client.callProcedure("@AdHoc", insStmt, "23.101.143.89", 20140914);
+        client.callProcedure("@AdHoc", insStmt, "23.101.138.62", 20140914);
+        client.callProcedure("@AdHoc", insStmt, "69.67.23.26", 20140914);
+        client.callProcedure("@AdHoc", insStmt, "198.179.137.202", 20140914);
+        client.callProcedure("@AdHoc", insStmt, "23.99.35.61", 20140914);
+
+        String query = "select count(ip.ip), ip.province as state " +
+                "from eng6926_hits as h, eng6926_ipuser as ip " +
+                "where ip.ip=h.ip and ip.countrycode='US' " +
+                    "group by ip.province " + "order by count(ip.ip) desc";
+
+        VoltTable vt = client.callProcedure("@AdHoc", query).getResults()[0];
+        long[] col0Expected = new long[] {4, 2, 1};
+        String[] col1Expected = new String[] {"District of Columbia", "Minnesota", "Washington"};
+        int i = 0;
+        while (vt.advanceRow()) {
+            assertEquals(col0Expected[i], vt.getLong(0));
+            assertEquals(col1Expected[i], vt.getString(1));
+            ++i;
+        }
+    }
+
+    public void testENG7041ViewAndExportTable() throws Exception {
+        Client client = getClient();
+
+        // Materialized view wasn't being updated, because the
+        // connection with its source table wasn't getting created
+        // when there was a (completely unrelated) export table in the
+        // database.
+        //
+        // When loading the catalog in the EE, we were erroneously
+        // aborting view processing when encountering an export table.
+        client.callProcedure("TRANSACTION.insert", 1, 99, 100.0, "NH", "Manchester", new TimestampType(), 20);
+
+        validateTableOfLongs(client, "select count(*) from transaction",
+                new long[][] {{1}});
+
+        // The buggy behavior would show zero rows in the view.
+        validateTableOfLongs(client, "select count(*) from acct_vendor_totals",
+                new long[][] {{1}});
+    }
+
+    public void testInnerJoinWithOverflow() throws Exception {
+        // In this bug, ENG-7349, we would fail an erroneous assertion
+        // in the EE that we must have more than one active index key when
+        // joining with a multi-component index.
+
+        Client client = getClient();
+
+        VoltTable vt = client.callProcedure("SM_IDX_TBL.insert", 1, 1, 1000)
+                .getResults()[0];
+        validateTableOfScalarLongs(vt, new long[] {1});
+
+        validateTableOfLongs(client,
+                "select * "
+                + "from sm_idx_tbl as t1 inner join sm_idx_tbl as t2 "
+                + "on t1.ti1 = t2.bi",
+                new long[][] {});
+    }
 
     //
     // JUnit / RegressionSuite boilerplate
@@ -1686,7 +1876,7 @@ public class TestFixedSQLSuite extends RegressionSuite {
         project.addSchema(Insert.class.getResource("fixed-sql-ddl.sql"));
         project.addProcedures(PROCEDURES);
 
-        //TODO: Now that this fails to compile with an overflow error, it should be migrated to a
+        // Now that this fails to compile with an overflow error, it should be migrated to a
         // Failures suite.
         //project.addStmtProcedure("Crap", "insert into COUNT_NULL values (" + Long.MIN_VALUE + ", 1, 200)");
 

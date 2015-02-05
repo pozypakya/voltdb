@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -17,10 +17,11 @@
 
 package org.voltdb.client;
 
+import java.util.concurrent.TimeUnit;
+
 import javax.security.auth.Subject;
 import javax.security.auth.login.LoginContext;
 import javax.security.auth.login.LoginException;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Container for configuration settings for a Client
@@ -29,6 +30,8 @@ public class ClientConfig {
 
     static final long DEFAULT_PROCEDURE_TIMOUT_NANOS = TimeUnit.MINUTES.toNanos(2);// default timeout is 2 minutes;
     static final long DEFAULT_CONNECTION_TIMOUT_MS = 2 * 60 * 1000; // default timeout is 2 minutes;
+    static final long DEFAULT_INITIAL_CONNECTION_RETRY_INTERVAL_MS = 1000; // default initial connection retry interval is 1 second
+    static final long DEFAULT_MAX_CONNECTION_RETRY_INTERVAL_MS = 8000; // default max connection retry interval is 8 seconds
 
     final String m_username;
     final String m_password;
@@ -43,6 +46,9 @@ public class ClientConfig {
     long m_connectionResponseTimeoutMS = DEFAULT_CONNECTION_TIMOUT_MS;
     boolean m_useClientAffinity = true;
     Subject m_subject = null;
+    boolean m_reconnectOnConnectionLoss;
+    long m_initialConnectionRetryIntervalMS = DEFAULT_INITIAL_CONNECTION_RETRY_INTERVAL_MS;
+    long m_maxConnectionRetryIntervalMS = DEFAULT_MAX_CONNECTION_RETRY_INTERVAL_MS;
 
     /**
      * <p>Configuration for a client with no authentication credentials that will
@@ -125,9 +131,9 @@ public class ClientConfig {
      * {@link ClientStatusListenerExt#lateProcedureResponse(ClientResponse, String, int)}
      * will be called.</p>
      *
-     * Default value is 2 minutes if not set. Value of 0 means forever.</p>
+     * <p>Default value is 2 minutes if not set. Value of 0 means forever.</p>
      *
-     * Note that while specified in MS, this timeout is only accurate to within a second or so.</p>
+     * <p>Note that while specified in MS, this timeout is only accurate to within a second or so.</p>
      *
      * @param ms Timeout value in milliseconds.
      */
@@ -248,6 +254,33 @@ public class ClientConfig {
      */
     public void setClientAffinity(boolean on) {
         m_useClientAffinity = on;
+    }
+
+    /**
+     * <p>Experimental: Attempts to reconnect to a node with retry after connection loss. See the {@link ReconnectStatusListener}.</p>
+     *
+     * @param on Enable or disable the reconnection feature. Default is off.
+     */
+    public void setReconnectOnConnectionLoss(boolean on) {
+        this.m_reconnectOnConnectionLoss = on;
+    }
+
+    /**
+     * <p>Set the initial connection retry interval. Only takes effect if {@link #m_reconnectOnConnectionLoss} is turned on.</p>
+     *
+     * @param ms initial connection retry interval in milliseconds.
+     */
+    public void setInitialConnectionRetryInterval(long ms) {
+        this.m_initialConnectionRetryIntervalMS = ms;
+    }
+
+    /**
+     * <p>Set the max connection retry interval. Only takes effect if {@link #m_reconnectOnConnectionLoss} is turned on.</p>
+     *
+     * @param ms max connection retry interval in milliseconds.
+     */
+    public void setMaxConnectionRetryInterval(long ms) {
+        this.m_maxConnectionRetryIntervalMS = ms;
     }
 
     /**

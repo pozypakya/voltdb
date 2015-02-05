@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -946,7 +946,7 @@ public class SpScheduler extends Scheduler implements SnapshotCompletionInterest
             msg = new CompleteTransactionMessage(message);
             // Set the spHandle so that on repair the new master will set the max seen spHandle
             // correctly
-            advanceTxnEgo();
+            if (!msg.isForReplay()) advanceTxnEgo();
             msg.setSpHandle(getCurrentTxnId());
             if (m_sendToHSIds.length > 0) {
                 m_mailbox.send(m_sendToHSIds, msg);

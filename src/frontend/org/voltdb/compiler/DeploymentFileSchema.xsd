@@ -51,12 +51,20 @@
     </xs:all>
   </xs:complexType>
 
+  <xs:simpleType name="schemaType">
+      <xs:restriction base="xs:string">
+          <xs:enumeration value="catalog"/>
+          <xs:enumeration value="ddl"/>
+      </xs:restriction>
+  </xs:simpleType>
+
   <!-- <cluster> -->
   <xs:complexType name="clusterType">
     <xs:attribute name="hostcount" type="xs:int" default="1"/>
     <xs:attribute name="sitesperhost" type="xs:int" default="8"/>
     <xs:attribute name="kfactor" type="xs:int" default="0"/>
     <xs:attribute name="elastic" type="xs:string" default="enabled"/>
+    <xs:attribute name="schema" type="schemaType" default="ddl"/>
   </xs:complexType>
 
   <!-- <paths> -->
@@ -71,10 +79,26 @@
               <xs:attribute name="path" type="xs:string" default="voltdbroot"/>
             </xs:complexType>
         </xs:element>
-        <xs:element name="snapshots" type="pathEntry" minOccurs="0" maxOccurs="1"/>
-        <xs:element name="exportoverflow" type="pathEntry" minOccurs="0" maxOccurs="1"/>
-        <xs:element name="commandlog" type="pathEntry" minOccurs="0" maxOccurs="1"/>
-        <xs:element name="commandlogsnapshot" type="pathEntry" minOccurs="0" maxOccurs="1"/>
+        <xs:element name="snapshots" minOccurs="0" maxOccurs="1">
+            <xs:complexType>
+              <xs:attribute name="path" type="xs:string" default="snapshots"/>
+            </xs:complexType>
+        </xs:element>
+        <xs:element name="exportoverflow" minOccurs="0" maxOccurs="1">
+            <xs:complexType>
+              <xs:attribute name="path" type="xs:string" default="export_overflow"/>
+            </xs:complexType>
+        </xs:element>
+        <xs:element name="commandlog" minOccurs="0" maxOccurs="1">
+            <xs:complexType>
+              <xs:attribute name="path" type="xs:string" default="command_log"/>
+            </xs:complexType>
+        </xs:element>
+        <xs:element name="commandlogsnapshot" minOccurs="0" maxOccurs="1">
+            <xs:complexType>
+              <xs:attribute name="path" type="xs:string" default="command_log_snapshot"/>
+            </xs:complexType>
+        </xs:element>
     </xs:all>
   </xs:complexType>
 
@@ -84,15 +108,21 @@
     </xs:restriction>
   </xs:simpleType>
 
-    <xs:simpleType name="elasticPauseType">
+  <xs:simpleType name="elasticDurationType">
     <xs:restriction base="xs:int">
       <xs:minInclusive value="1"/>
     </xs:restriction>
   </xs:simpleType>
 
-      <xs:simpleType name="elasticThroughputType">
+  <xs:simpleType name="elasticThroughputType">
     <xs:restriction base="xs:int">
       <xs:minInclusive value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="latencyType">
+    <xs:restriction base="xs:int">
+      <xs:minInclusive value="0"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -104,15 +134,20 @@
                 <xs:attribute name="maxsize" type="memorySizeType" default="100"/>
             </xs:complexType>
         </xs:element>
-         <xs:element name="snapshot" minOccurs="0" maxOccurs="1">
+        <xs:element name="snapshot" minOccurs="0" maxOccurs="1">
             <xs:complexType>
                 <xs:attribute name="priority" type="snapshotPriorityType" default="6"/>
             </xs:complexType>
         </xs:element>
-            <xs:element name="elastic" minOccurs="0" maxOccurs="1">
+        <xs:element name="elastic" minOccurs="0" maxOccurs="1">
             <xs:complexType>
-                <xs:attribute name="duration" type="elasticPauseType" default="50"/>
+                <xs:attribute name="duration" type="elasticDurationType" default="50"/>
                 <xs:attribute name="throughput" type="elasticThroughputType" default="2"/>
+            </xs:complexType>
+        </xs:element>
+        <xs:element name="query" minOccurs="0" maxOccurs="1">
+            <xs:complexType>
+                <xs:attribute name="timeout" type="latencyType" default="0"/>
             </xs:complexType>
         </xs:element>
 
@@ -156,7 +191,7 @@
       <xs:all>
           <xs:element name="snapshot" minOccurs="0" maxOccurs="1">
              <xs:complexType>
-                 <xs:attribute name="prefix" type="xs:string" use="required"/>
+                 <xs:attribute name="prefix" type="xs:string" use="optional" default="partition_detection" />
              </xs:complexType>
           </xs:element>
       </xs:all>
@@ -165,7 +200,7 @@
 
   <!-- <heartbeat-config> -->
   <xs:complexType name="heartbeatType">
-    <xs:attribute name="timeout" type="timeoutType" use="required"/>
+    <xs:attribute name="timeout" type="timeoutType" use="optional" default="90"/>
   </xs:complexType>
 
   <xs:simpleType name="timeoutType">
@@ -180,7 +215,6 @@
   <xs:simpleType name="snapshotPriorityType">
     <xs:restriction base="xs:int">
       <xs:minInclusive value="0"/>
-      <xs:maxInclusive value="10"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -231,9 +265,9 @@
 
   <!-- <snapshot> -->
   <xs:complexType name="snapshotType">
-    <xs:attribute name="frequency" type="xs:string" use="required"/>
-    <xs:attribute name="retain" type="snapshotRetainType" use="required"/>
-    <xs:attribute name="prefix" type="xs:string" use="required"/>
+    <xs:attribute name="frequency" type="xs:string" use="optional" default="10m" />
+    <xs:attribute name="retain" type="snapshotRetainType" use="optional" default="1" />
+    <xs:attribute name="prefix" type="xs:string" use="optional" default="SNAPSHOTNONCE" />
     <xs:attribute name="enabled" type="xs:boolean" default="true"/>
   </xs:complexType>
 
@@ -265,7 +299,7 @@
     <xs:restriction base="xs:normalizedString">
       <xs:maxLength value="256"/>
       <xs:minLength value="1"/>
-      <xs:pattern value="\p{L}[\p{L}\d_-]*(\.[\p{L}\d_-]+)*"/>
+      <xs:pattern value="\??\p{L}[\p{L}\d_-]*(\.[\p{L}\d_-]+)*"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -274,6 +308,8 @@
       <xs:enumeration value="file"/>
       <xs:enumeration value="jdbc"/>
       <xs:enumeration value="kafka"/>
+      <xs:enumeration value="http"/>
+      <xs:enumeration value="rabbitmq"/>
       <xs:enumeration value="custom"/>
     </xs:restriction>
   </xs:simpleType>
@@ -284,7 +320,6 @@
       <xs:element name="user" minOccurs="1" maxOccurs="unbounded">
         <xs:complexType>
           <xs:attribute name="name" type="xs:string" use="required"/>
-          <xs:attribute name="groups" type="xs:string"/>
           <xs:attribute name="roles" type="xs:string"/>
           <xs:attribute name="password" type="xs:string" use="required"/>
           <xs:attribute name="plaintext" type="xs:boolean" default="true"/>

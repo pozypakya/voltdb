@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -34,8 +34,8 @@ import org.voltdb.common.Constants;
 import org.voltdb.planner.BoundPlan;
 import org.voltdb.planner.CompiledPlan;
 import org.voltdb.planner.CorePlan;
-import org.voltdb.planner.StatementPartitioning;
 import org.voltdb.planner.QueryPlanner;
+import org.voltdb.planner.StatementPartitioning;
 import org.voltdb.planner.TrivialCostModel;
 import org.voltdb.plannodes.AbstractPlanNode;
 import org.voltdb.utils.Encoder;
@@ -50,20 +50,21 @@ public class PlannerTool {
     final Database m_database;
     final Cluster m_cluster;
     final HSQLInterface m_hsql;
-    final int m_catalogVersion;
+    final byte[] m_catalogHash;
     final AdHocCompilerCache m_cache;
     static PlannerStatsCollector m_plannerStats;
 
     public static final int AD_HOC_JOINED_TABLE_LIMIT = 5;
 
-    public PlannerTool(final Cluster cluster, final Database database, int catalogVersion) {
+    public PlannerTool(final Cluster cluster, final Database database, byte[] catalogHash)
+    {
         assert(cluster != null);
         assert(database != null);
 
         m_database = database;
         m_cluster = cluster;
-        m_catalogVersion = catalogVersion;
-        m_cache = AdHocCompilerCache.getCacheForCatalogVersion(catalogVersion);
+        m_catalogHash = catalogHash;
+        m_cache = AdHocCompilerCache.getCacheForCatalogHash(catalogHash);
 
         // LOAD HSQL
         m_hsql = HSQLInterface.loadHsqldb();
@@ -104,7 +105,36 @@ public class PlannerTool {
         return planSql(sqlIn, infer);
     }
 
-    AdHocPlannedStatement planSql(String sqlIn, StatementPartitioning partitioning) {
+    /**
+     * Stripped down compile that is ONLY used to plan default procedures.
+     */
+    public synchronized CompiledPlan planSqlCore(String sql, StatementPartitioning partitioning) {
+        TrivialCostModel costModel = new TrivialCostModel();
+        DatabaseEstimates estimates = new DatabaseEstimates();
+        QueryPlanner planner = new QueryPlanner(
+            sql, "PlannerTool", "PlannerToolProc", m_cluster, m_database,
+            partitioning, m_hsql, estimates, true,
+            AD_HOC_JOINED_TABLE_LIMIT, costModel, null, null, DeterminismMode.FASTER);
+
+        CompiledPlan plan = null;
+        try {
+            // do the expensive full planning.
+            planner.parse();
+            plan = planner.plan();
+            assert(plan != null);
+        }
+        catch (Exception e) {
+            throw new RuntimeException("Error compiling query: " + e.toString(), e);
+        }
+
+        if (plan == null) {
+            throw new RuntimeException("Null plan received in PlannerTool.planSql");
+        }
+
+        return plan;
+    }
+
+    synchronized AdHocPlannedStatement planSql(String sqlIn, StatementPartitioning partitioning) {
         CacheUse cacheUse = CacheUse.FAIL;
         if (m_plannerStats != null) {
             m_plannerStats.startStatsCollection();
@@ -115,8 +145,6 @@ public class PlannerTool {
             }
             // remove any spaces or newlines
             String sql = sqlIn.trim();
-
-            hostLog.debug("received sql stmt: " + sql);
 
             // No caching for forced single partition or forced multi partition SQL,
             // since these options potentially get different plans that may be invalid
@@ -137,7 +165,7 @@ public class PlannerTool {
                 }
             }
 
-            //Reset plan node id counter
+            // Reset plan node id counter
             AbstractPlanNode.resetPlanNodeIds();
 
             //////////////////////
@@ -174,13 +202,13 @@ public class PlannerTool {
                             }
                         }
                         if (matched != null) {
-                            CorePlan core = matched.core;
+                            CorePlan core = matched.m_core;
                             ParameterSet params = planner.extractedParamValues(core.parameterTypes);
                             AdHocPlannedStatement ahps = new AdHocPlannedStatement(sql.getBytes(Constants.UTF8ENCODING),
                                                                                    core,
                                                                                    params,
                                                                                    null);
-                            ahps.setBoundConstants(matched.constants);
+                            ahps.setBoundConstants(matched.m_constants);
                             m_cache.put(sql, parsedToken, ahps, extractedLiterals);
                             cacheUse = CacheUse.HIT2;
                             return ahps;
@@ -202,26 +230,22 @@ public class PlannerTool {
             //////////////////////
             // OUTPUT THE RESULT
             //////////////////////
-            CorePlan core = new CorePlan(plan, m_catalogVersion);
+            CorePlan core = new CorePlan(plan, m_catalogHash);
             AdHocPlannedStatement ahps = new AdHocPlannedStatement(plan, core);
 
             if (partitioning.isInferred()) {
+
+                // Note either the parameter index (per force to a user-provided parameter) or
+                // the actual constant value of the partitioning key inferred from the plan.
+                // Either or both of these two values may simply default
+                // to -1 and to null, respectively.
+                core.setPartitioningParamIndex(partitioning.getInferredParameterIndex());
+                core.setPartitioningParamValue(partitioning.getInferredPartitioningValue());
+
                 if (planner.compiledAsParameterizedPlan()) {
                     assert(parsedToken != null);
-                    // Note the parameter index of the partitioning key, so that the actual
-                    // parameter value can vary with each invocation.
-                    // It may default to -1 if single partitioning is not possible or for replicated DML.
-                    core.setPartitioningParamIndex(partitioning.getInferredParameterIndex());
-
                     // Again, plans with inferred partitioning are the only ones supported in the cache.
                     m_cache.put(sqlIn, parsedToken, ahps, extractedLiterals);
-                } else {
-                    // Note either the parameter index (per force to a user-provided parameter) or
-                    // the actual constant value of the partitioning key inferred from the plan.
-                    // Either or both of these two values may simply default
-                    // to -1 and to null, respectively.
-                    core.setPartitioningParamIndex(partitioning.getInferredParameterIndex());
-                    core.setPartitioningParamValue(partitioning.getInferredPartitioningValue());
                 }
             }
             return ahps;

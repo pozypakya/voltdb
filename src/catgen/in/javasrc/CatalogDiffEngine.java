@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -24,6 +24,7 @@ package org.voltdb.catalog;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.SortedMap;
 import java.util.TreeMap;
 
 import org.apache.commons.lang3.StringUtils;
@@ -32,12 +33,9 @@ import org.voltdb.catalog.CatalogChangeGroup.FieldChange;
 import org.voltdb.catalog.CatalogChangeGroup.TypeChanges;
 import org.voltdb.expressions.AbstractExpression;
 import org.voltdb.utils.CatalogSizing;
+import org.voltdb.utils.CatalogUtil;
 
 public class CatalogDiffEngine {
-
-    static final String GENERIC_MAT_VIEW_MODIFIED_ERROR =
-       "May not dynamically modify materialized view definitions." +
-       " They must be dropped and added in separate transactions.\n";
 
     //*  //IF-LINE-VS-BLOCK-STYLE-COMMENT
     /// A flag that controls output for debugging.
@@ -65,6 +63,8 @@ public class CatalogDiffEngine {
     // while no snapshot is running
     private boolean m_requiresSnapshotIsolation = false;
 
+    private SortedMap<String,String> m_tablesThatMustBeEmpty = new TreeMap<>();
+
     //A very rough guess at whether only deployment changes are in the catalog update
     //Can be improved as more deployment things are going to be allowed to conflict
     //with Elasticity. Right now this just tracks whether a catalog update can
@@ -90,6 +90,7 @@ public class CatalogDiffEngine {
 
         // store the complete set of old and new indexes so some extra checking can be done with
         // constraints and new/updated unique indexes
+
         CatalogMap<Table> tables = prev.getClusters().get("cluster").getDatabases().get("database").getTables();
         assert(tables != null);
         for (Table t : tables) {
@@ -128,6 +129,16 @@ public class CatalogDiffEngine {
      */
     public boolean requiresSnapshotIsolation() {
         return m_requiresSnapshotIsolation;
+    }
+
+    public String[] tablesThatMustBeEmpty() {
+        // this lines up with reasonsWhyTablesMustBeEmpty because SortedMap/TreeMap has order
+        return m_tablesThatMustBeEmpty.keySet().toArray(new String[0]);
+    }
+
+    public String[] reasonsWhyTablesMustBeEmpty() {
+        // this lines up with tablesThatMustBeEmpty because SortedMap/TreeMap has order
+        return m_tablesThatMustBeEmpty.values().toArray(new String[0]);
     }
 
     public boolean worksWithElastic() {
@@ -278,10 +289,25 @@ public class CatalogDiffEngine {
     }
 
     /**
-     * @return true if the CatalogType can be dynamically added or removed
-     * from a running system.
+     * @return true if the parameter is an instance of Statement owned
+     * by a table node.  This indicates that the Statement is the
+     * DELETE statement in a
+     *   LIMIT PARTITION ROWS <n> EXECUTE (DELETE ...)
+     * constraint.
      */
-    private boolean checkAddDropWhitelist(final CatalogType suspect, final ChangeType changeType)
+    static private boolean isTableLimitDeleteStmt(final CatalogType catType) {
+        if (catType instanceof Statement && catType.getParent() instanceof Table)
+            return true;
+        return false;
+    }
+
+    /**
+     * @return null if the CatalogType can be dynamically added or removed
+     * from a running system. Return an error string if it can't be changed on
+     * a non-empty table. There will be a subsequent check for empty table
+     * feasability.
+     */
+    private String checkAddDropWhitelist(final CatalogType suspect, final ChangeType changeType)
     {
         //Will catch several things that are actually just deployment changes, but don't care
         //to be more specific at this point
@@ -305,8 +331,9 @@ public class CatalogDiffEngine {
             // flagging their changes here would be redundant.
             suspect instanceof Constraint ||
             // Support add/drop of the top level object.
-            suspect instanceof Table) {
-            return true;
+            suspect instanceof Table)
+        {
+            return null;
         }
 
         else if (suspect instanceof ColumnRef) {
@@ -318,15 +345,14 @@ public class CatalogDiffEngine {
                     Index newIndex = newIndexes.get(parent.getTypeName());
 
                     if (!checkNewUniqueIndex(newIndex)) {
-                        m_errors.append("May not dynamically remove columns from unique index: " +
-                                parent.getTypeName() + "\n");
-                        return false;
+                        return "May not dynamically remove columns from unique index: " +
+                                parent.getTypeName();
                     }
                 }
             }
 
             // ColumnRef is not part of an index, index is not unique OR unique index is safe to create
-            return true;
+            return null;
         }
 
         else if (suspect instanceof Column) {
@@ -335,19 +361,17 @@ public class CatalogDiffEngine {
             // sub-components of Procedure, Connector, etc. as checked in the loop, below.
             // Is this safe/correct?
             if (m_inStrictMatViewDiffMode) {
-                m_errors.append("May not dynamically add, drop, or rename materialized view columns.\n");
-                return false;
+                return "May not dynamically add, drop, or rename materialized view columns.";
             }
             if (changeType == ChangeType.ADDITION) {
                 Column col = (Column) suspect;
                 if ((! col.getNullable()) && (col.getDefaultvalue() == null)) {
-                    m_errors.append("May not dynamically add non-nullable column without default value.\n");
-                    return false;
+                    return "May not dynamically add non-nullable column without default value.";
                 }
             }
             // adding/dropping a column requires isolation from snapshots
             m_requiresSnapshotIsolation = true;
-            return true;
+            return null;
         }
 
         // allow addition/deletion of indexes except for the addition
@@ -355,29 +379,32 @@ public class CatalogDiffEngine {
         else if (suspect instanceof Index) {
             Index index = (Index) suspect;
             if (!index.m_unique) {
-                return true;
+                return null;
             }
 
             // it's cool to remove unique indexes
             if (changeType == ChangeType.DELETION) {
-                return true;
+                return null;
             }
 
             // if adding a unique index, check if the columns in the new
             // index cover an existing index
             if (checkNewUniqueIndex(index)) {
-                return true;
+                return null;
             }
 
-            m_errors.append("May not dynamically add unique indexes that don't cover existing unique indexes.\n");
-            // Note: "return false;" vs. fall through, here
+            // Note: return error vs. fall through, here
             // overrides the grandfathering-in of (any? possible?) added/dropped Index-typed
             // sub-components of Procedure, Connector, etc. as checked in the loop, below.
-            return false;
+            return "May not dynamically add unique indexes that don't cover existing unique indexes.\n";
         }
 
         else if (suspect instanceof MaterializedViewInfo && ! m_inStrictMatViewDiffMode) {
-            return true;
+            return null;
+        }
+
+        else if (isTableLimitDeleteStmt(suspect)) {
+            return null;
         }
 
         //TODO: This code is also pretty fishy
@@ -385,7 +412,7 @@ public class CatalogDiffEngine {
 
         // Also allow add/drop of anything (that hasn't triggered an early return already)
         // if it is found anywhere in these sub-trees.
-        for (CatalogType parent = suspect.m_parent; parent != null; parent = parent.m_parent) {
+        for (CatalogType parent = suspect.getParent(); parent != null; parent = parent.getParent()) {
             if (parent instanceof Procedure ||
                 parent instanceof Connector ||
                 parent instanceof ConstraintRef ||
@@ -396,12 +423,60 @@ public class CatalogDiffEngine {
                                        " of schema object '" + suspect + "'" +
                                        " rescued by context '" + parent + "'");
                 }
-                return true;
+                return null;
             }
         }
 
-        m_errors.append("May not dynamically add/drop schema object: '" + suspect + "'\n");
-        return false;
+        return "May not dynamically add/drop schema object: '" + suspect + "'\n";
+    }
+
+    /**
+     * @return null if the change is not possible under any circumstances.
+     * Return two strings if it is possible if the table is empty.
+     * String 1 is name of a table if the change could be made if the table of that name had no tuples.
+     * String 2 is the error message to show the user if that table isn't empty.
+     */
+    private String[] checkAddDropIfTableIsEmptyWhitelist(final CatalogType suspect, final ChangeType changeType) {
+        String[] retval = new String[2];
+
+        // handle adding an index - presumably unique
+        if (suspect instanceof Index) {
+            Index idx = (Index) suspect;
+            assert(idx.getUnique());
+
+            retval[0] = idx.getParent().getTypeName();
+            retval[1] = String.format(
+                    "Unable to add unique index %s because table %s is not empty.",
+                    idx.getTypeName(), retval[0]);
+            return retval;
+        }
+
+        CatalogType parent = suspect.getParent();
+
+        // handle changes to columns in an index - presumably drops and presumably unique
+        if ((suspect instanceof ColumnRef) && (parent instanceof Index)) {
+            Index idx = (Index) parent;
+            assert(idx.getUnique());
+            assert(changeType == ChangeType.DELETION);
+            Table table = (Table) idx.getParent();
+
+            retval[0] = table.getTypeName();
+            retval[1] = String.format(
+                    "Unable to remove column %s from unique index %s because table %s is not empty.",
+                    suspect.getTypeName(), idx.getTypeName(), retval[0]);
+            return retval;
+        }
+
+        if ((suspect instanceof Column) && (parent instanceof Table) && (changeType == ChangeType.ADDITION)) {
+            Column column = (Column)suspect;
+            retval[0] = parent.getTypeName();
+            retval[1] = String.format(
+                    "Unable to add NOT NULL column %s because table %s is not empty and no default value was specified.",
+                    suspect.getTypeName(), retval[0]);
+            return retval;
+        }
+
+        return null;
     }
 
     private boolean areTableColumnsMutable(Table table) {
@@ -468,18 +543,21 @@ public class CatalogDiffEngine {
     }
 
     /**
-     * @return true if CatalogType can be dynamically modified
-     * in a running system.
+     * @return null if CatalogType can be dynamically modified
+     * in a running system. Otherwise return an error message that
+     * can be given if it turns out we really can't make the change.
+     * Return "" if the error has already been handled.
      */
-    private boolean checkModifyWhitelist(final CatalogType suspect,
-                                         final CatalogType prevType,
-                                         final String field)
+    private String checkModifyWhitelist(final CatalogType suspect,
+                                        final CatalogType prevType,
+                                        final String field)
     {
         // should generate this from spec.txt
 
         if (suspect instanceof Systemsettings &&
-                (field.equals("elasticPauseTime") || field.equals("elasticThroughput"))) {
-            return true;
+                (field.equals("elasticduration") || field.equals("elasticthroughput")
+                        || field.equals("querytimeout"))) {
+            return null;
         } else {
             m_canOccurWithElasticRebalance = false;
         }
@@ -492,25 +570,25 @@ public class CatalogDiffEngine {
             suspect instanceof UserRef ||
             suspect instanceof GroupRef ||
             suspect instanceof ColumnRef) {
-            return true;
+            return null;
         }
 
         // Support modification of these specific fields
         if (suspect instanceof Database && field.equals("schema"))
-            return true;
+            return null;
         if (suspect instanceof Database && "securityprovider".equals(field))
-            return true;
+            return null;
         if (suspect instanceof Cluster && field.equals("securityEnabled"))
-            return true;
+            return null;
         if (suspect instanceof Cluster && field.equals("adminstartup"))
-            return true;
+            return null;
         if (suspect instanceof Cluster && field.equals("heartbeatTimeout"))
-            return true;
+            return null;
         if (suspect instanceof Constraint && field.equals("index"))
-            return true;
+            return null;
         if (suspect instanceof Table) {
             if (field.equals("signature") || field.equals("tuplelimit"))
-                return true;
+                return null;
         }
 
 
@@ -523,7 +601,7 @@ public class CatalogDiffEngine {
             CatalogType parent = suspect.getParent();
             // can change statements
             if (parent instanceof Statement) {
-                return true;
+                return null;
             }
 
             // all table column changes require snapshot isolation for now
@@ -536,19 +614,22 @@ public class CatalogDiffEngine {
                 // overrides the grandfathering-in of modified fields of
                 // Column-typed sub-components of Procedure and ColumnRef.
                 // Is this safe/correct?
-                return false; // error msg already appended
+                return ""; // error msg already appended
             }
 
-            if (field.equals("index"))
-                return true;
-            if (field.equals("defaultvalue"))
-                return true;
-            if (field.equals("defaulttype"))
-                return true;
+            if (field.equals("index")) {
+                return null;
+            }
+            if (field.equals("defaultvalue")) {
+                return null;
+            }
+            if (field.equals("defaulttype")) {
+                return null;
+            }
             if (field.equals("nullable")) {
                 Boolean nullable = (Boolean) suspect.getField(field);
                 assert(nullable != null);
-                if (nullable) return true;
+                if (nullable) return null;
                 restrictionQualifier = " from nullable to non-nullable";
             }
             else if (field.equals("type") || field.equals("size") || field.equals("inbytes")) {
@@ -570,7 +651,7 @@ public class CatalogDiffEngine {
 
                 if (checkIfColumnTypeChangeIsSupported(oldType, oldSize, newType, newSize,
                         oldInBytes, newInBytes)) {
-                    return true;
+                    return null;
                 }
                 if (oldTypeInt == newTypeInt) {
                     if (oldType == VoltType.STRING && oldInBytes == false && newInBytes == true) {
@@ -595,10 +676,14 @@ public class CatalogDiffEngine {
                         field.equals("aggregationExpressionsJson")) {
                     if (AbstractExpression.areOverloadedJSONExpressionLists((String)prevType.getField(field),
                             (String)suspect.getField(field))) {
-                        return true;
+                        return null;
                     }
                 }
             }
+        }
+
+        else if (isTableLimitDeleteStmt(suspect)) {
+            return null;
         }
 
         // Also allow any field changes (that haven't triggered an early return already)
@@ -619,7 +704,7 @@ public class CatalogDiffEngine {
         // This would provide flexibility in the future for the grand-fathered elements
         // to bypass as many or as few checks as desired.
 
-        for (CatalogType parent = suspect.m_parent; parent != null; parent = parent.m_parent) {
+        for (CatalogType parent = suspect.getParent(); parent != null; parent = parent.getParent()) {
             if (parent instanceof Procedure || parent instanceof ColumnRef) {
                 if (m_triggeredVerbosity) {
                     System.out.println("DEBUG VERBOSE diffRecursively field change to " +
@@ -627,13 +712,118 @@ public class CatalogDiffEngine {
                                        restrictionQualifier +
                                        " rescued by context '" + parent + "'");
                 }
-                return true;
+                return null;
+            }
+
+            if (isTableLimitDeleteStmt(parent)) {
+                return null;
             }
         }
 
-        m_errors.append("May not dynamically modify field '" + field +
-                        "' of schema object '" + suspect + "'" + restrictionQualifier + "\n");
-        return false;
+        return "May not dynamically modify field '" + field +
+                        "' of schema object '" + suspect + "'" + restrictionQualifier;
+    }
+
+    /**
+     * @return null if the change is not possible under any circumstances.
+     * Return two strings if it is possible if the table is empty.
+     * String 1 is name of a table if the change could be made if the table of that name had no tuples.
+     * String 2 is the error message to show the user if that table isn't empty.
+     */
+    public String[] checkModifyIfTableIsEmptyWhitelist(final CatalogType suspect,
+                                                     final CatalogType prevType,
+                                                     final String field)
+    {
+        // first is table name, second is error message
+        String[] retval = new String[2];
+
+        if (prevType instanceof Table) {
+            Table prevTable = (Table) prevType; // safe because of enclosing if-block
+            Database db = (Database) prevType.getParent();
+
+            // table name
+            retval[0] = suspect.getTypeName();
+
+            // for now, no changes to export tables
+            if (CatalogUtil.isTableExportOnly(db, prevTable)) {
+                return null;
+            }
+
+            // allowed changes to a table
+            if (field.equalsIgnoreCase("isreplicated")) {
+                // error message
+                retval[1] = String.format(
+                        "Unable to change whether table %s is replicated because it is not empty.",
+                        retval[0]);
+                return retval;
+            }
+            if (field.equalsIgnoreCase("partitioncolumn")) {
+                // error message
+                retval[1] = String.format(
+                        "Unable to change the partition column of table %s because it is not empty.",
+                        retval[0]);
+                return retval;
+            }
+        }
+
+        // handle narrowing columns and some modifications on empty tables
+        if (prevType instanceof Column) {
+            Table table = (Table) prevType.getParent();
+            Column column = (Column)prevType;
+            Database db = (Database) table.getParent();
+
+            // for now, no changes to export tables
+            if (CatalogUtil.isTableExportOnly(db, table)) {
+                return null;
+            }
+
+            // capture the table name
+            retval[0] = table.getTypeName();
+
+            if (field.equalsIgnoreCase("type")) {
+                // error message
+                retval[1] = String.format(
+                        "Unable to make a possibly-lossy type change to column %s in table %s because it is not empty.",
+                        prevType.getTypeName(), retval[0]);
+                return retval;
+            }
+
+            if (field.equalsIgnoreCase("size")) {
+                // error message
+                retval[1] = String.format(
+                        "Unable to narrow the width of column %s in table %s because it is not empty.",
+                        prevType.getTypeName(), retval[0]);
+                return retval;
+            }
+
+            // Nullability changes are allowed on empty tables.
+            if (field.equalsIgnoreCase("nullable")) {
+                // Would be flipping the nullability, so invert the state for the message.
+                String alteredNullness = column.getNullable() ? "NOT NULL" : "NULL";
+                retval[1] = String.format(
+                        "Unable to change column %s null constraint to %s in table %s because it is not empty.",
+                        prevType.getTypeName(), alteredNullness, retval[0]);
+                return retval;
+            }
+        }
+
+        if (prevType instanceof Index) {
+            Table table = (Table) prevType.getParent();
+            Index index = (Index)prevType;
+
+            // capture the table name
+            retval[0] = table.getTypeName();
+            if (field.equalsIgnoreCase("expressionsjson")) {
+                // error message
+                retval[1] = String.format(
+                        "Unable to alter table %s with expression-based index %s becase table %s is not empty.",
+                        retval[0], index.getTypeName(), retval[0]);
+                return retval;
+            }
+
+        }
+
+        return null;
     }
 
     /**
@@ -647,8 +837,13 @@ public class CatalogDiffEngine {
         }
 
         // verify this is possible, write an error and mark return code false if so
-        if (checkModifyWhitelist(newType, prevType, field) == false) {
-            m_supported = false;
+        String errorMessage = checkModifyWhitelist(newType, prevType, field);
+
+        // if it's not possible with non-empty tables, check for possible with empty tables
+        if (errorMessage != null) {
+            String[] response = checkModifyIfTableIsEmptyWhitelist(newType, prevType, field);
+            // handle all the error messages and state from the modify check
+            processModifyResponses(errorMessage, response);
         }
 
         // write the commands to make it so
@@ -667,6 +862,43 @@ public class CatalogDiffEngine {
     }
 
     /**
+     * After we decide we can't modify, add or delete something on a full table,
+     * we do a check to see if we can do that on an empty table. The original error
+     * and any response from the empty table check is processed here. This code
+     * is basically in this method so it's not repeated 3 times for modify, add
+     * and delete. See where it's called for context.
+     */
+    private void processModifyResponses(String errorMessage, String[] response) {
+        assert(errorMessage != null);
+
+        // if no tablename, then it's just not possible
+        if (response == null) {
+            m_supported = false;
+            m_errors.append(errorMessage);
+        }
+        // otherwise, it's possible if a specific table is empty
+        // collect the error message(s) and decide if it can be done inside @UAC
+        else {
+            assert(response.length == 2);
+            String tableName = response[0]; assert(tableName != null);
+            String nonEmptyErrorMessage = response[1]; assert(nonEmptyErrorMessage != null);
+
+            String existingErrorMessagesForNonEmptyTable = m_tablesThatMustBeEmpty.get(tableName);
+            if (nonEmptyErrorMessage.length() == 0) {
+                // the empty string presumes there is already an error for this table
+                assert(existingErrorMessagesForNonEmptyTable != null);
+            }
+            else {
+                if (existingErrorMessagesForNonEmptyTable != null) {
+                    nonEmptyErrorMessage = nonEmptyErrorMessage + "\n" + existingErrorMessagesForNonEmptyTable;
+                }
+                // add indentation here so the formatting comes out right for the user #gianthack
+                m_tablesThatMustBeEmpty.put(tableName, "  " + nonEmptyErrorMessage);
+            }
+        }
+    }
+
+    /**
      * Add a deletion
      */
     private void writeDeletion(CatalogType prevType, CatalogType newlyChildlessParent, String mapName, String name)
@@ -677,13 +909,18 @@ public class CatalogDiffEngine {
         }
 
         // verify this is possible, write an error and mark return code false if so
-        if (checkAddDropWhitelist(prevType, ChangeType.DELETION) == false) {
-            m_supported = false;
+        String errorMessage = checkAddDropWhitelist(prevType, ChangeType.DELETION);
+
+        // if it's not possible with non-empty tables, check for possible with empty tables
+        if (errorMessage != null) {
+            String[] response = checkAddDropIfTableIsEmptyWhitelist(prevType, ChangeType.DELETION);
+            // handle all the error messages and state from the modify check
+            processModifyResponses(errorMessage, response);
         }
 
         // write the commands to make it so
         // they will be ignored if the change is unsupported
-        m_sb.append("delete ").append(prevType.getParent().getPath()).append(" ");
+        m_sb.append("delete ").append(prevType.getParent().getCatalogPath()).append(" ");
         m_sb.append(mapName).append(" ").append(name).append("\n");
 
         // add it to the set of deletions to later compute descriptive text
@@ -700,8 +937,13 @@ public class CatalogDiffEngine {
             return;
         }
         // verify this is possible, write an error and mark return code false if so
-        if (checkAddDropWhitelist(newType, ChangeType.ADDITION) == false) {
-            m_supported = false;
+        String errorMessage = checkAddDropWhitelist(newType, ChangeType.ADDITION);
+
+        // if it's not possible with non-empty tables, check for possible with empty tables
+        if (errorMessage != null) {
+            String[] response = checkAddDropIfTableIsEmptyWhitelist(newType, ChangeType.ADDITION);
+            // handle all the error messages and state from the modify check
+            processModifyResponses(errorMessage, response);
         }
 
         // write the commands to make it so
@@ -790,8 +1032,8 @@ public class CatalogDiffEngine {
                 // if comparing CatalogTypes (both must be same)
                 if (prevValue instanceof CatalogType) {
                     assert(newValue instanceof CatalogType);
-                    String prevPath = ((CatalogType) prevValue).getPath();
-                    String newPath = ((CatalogType) newValue).getPath();
+                    String prevPath = ((CatalogType) prevValue).getCatalogPath();
+                    String newPath = ((CatalogType) newValue).getCatalogPath();
                     if (prevPath.compareTo(newPath) != 0) {
                         if (m_triggeredVerbosity) {
                             int padWidth = StringUtils.indexOfDifference(prevPath, newPath);
@@ -823,15 +1065,15 @@ public class CatalogDiffEngine {
         }
 
         // recurse
-        for (String field : prevType.m_childCollections.keySet()) {
+        for (String field : prevType.getChildCollections()) {
             boolean verbosityTriggeredHere = false;
             if (field.equals(m_triggerForVerbosity)) {
                 System.out.println("DEBUG VERBOSE diffRecursively verbosity ON");
                 m_triggeredVerbosity = true;
                 verbosityTriggeredHere = true;
             }
-            CatalogMap<? extends CatalogType> prevMap = prevType.m_childCollections.get(field);
-            CatalogMap<? extends CatalogType> newMap = newType.m_childCollections.get(field);
+            CatalogMap<? extends CatalogType> prevMap = prevType.getCollection(field);
+            CatalogMap<? extends CatalogType> newMap = newType.getCollection(field);
             getCommandsToDiff(field, prevMap, newMap);
             if (verbosityTriggeredHere) {
                 System.out.println("DEBUG VERBOSE diffRecursively verbosity OFF");
@@ -1011,7 +1253,7 @@ public class CatalogDiffEngine {
                 // note, this has to be pretty raw to avoid some smarts that wont work
                 // in this context. this may return an unresolved link which points nowhere,
                 // but that's good enough to know it's a view
-                if (table.m_fields.get("materializer") != null) {
+                if (table.getField("materializer") != null) {
                     return "View " + type.getTypeName();
                 }
 

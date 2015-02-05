@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -126,6 +126,19 @@ template<> inline NValue NValue::callUnary<FUNC_EXTRACT_DAY_OF_WEEK>() const {
     boost::gregorian::date as_date;
     micros_to_date(epoch_micros, as_date);
     return getTinyIntValue((int8_t)(as_date.day_of_week() + 1)); // Have 0-based, want 1-based.
+}
+
+/** implement the timestamp WEEKDAY extract function **/
+// It is almost the same as FUNC_EXTRACT_DAY_OF_WEEK
+// Monday-0, ..., Saturday-5, Sunday-6
+template<> inline NValue NValue::callUnary<FUNC_EXTRACT_WEEKDAY>() const {
+    if (isNull()) {
+        return *this;
+    }
+    int64_t epoch_micros = getTimestamp();
+    boost::gregorian::date as_date;
+    micros_to_date(epoch_micros, as_date);
+    return getTinyIntValue((int8_t)((as_date.day_of_week() + 6) % 7));
 }
 
 /** implement the timestamp WEEK OF YEAR extract function **/

@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -24,7 +24,6 @@ import java.util.Map;
 import org.voltdb.plannodes.AbstractPlanNode;
 import org.voltdb.plannodes.AggregatePlanNode;
 import org.voltdb.plannodes.DeletePlanNode;
-import org.voltdb.plannodes.DistinctPlanNode;
 import org.voltdb.plannodes.HashAggregatePlanNode;
 import org.voltdb.plannodes.IndexCountPlanNode;
 import org.voltdb.plannodes.IndexScanPlanNode;
@@ -35,6 +34,7 @@ import org.voltdb.plannodes.MaterializedScanPlanNode;
 import org.voltdb.plannodes.NestLoopIndexPlanNode;
 import org.voltdb.plannodes.NestLoopPlanNode;
 import org.voltdb.plannodes.OrderByPlanNode;
+import org.voltdb.plannodes.PartialAggregatePlanNode;
 import org.voltdb.plannodes.ProjectionPlanNode;
 import org.voltdb.plannodes.ReceivePlanNode;
 import org.voltdb.plannodes.SendPlanNode;
@@ -42,7 +42,6 @@ import org.voltdb.plannodes.SeqScanPlanNode;
 import org.voltdb.plannodes.TableCountPlanNode;
 import org.voltdb.plannodes.UnionPlanNode;
 import org.voltdb.plannodes.UpdatePlanNode;
-import org.voltdb.plannodes.UpsertPlanNode;
 
 /**
  *
@@ -71,7 +70,6 @@ public enum PlanNodeType {
     UPDATE          (30, UpdatePlanNode.class),
     INSERT          (31, InsertPlanNode.class),
     DELETE          (32, DeletePlanNode.class),
-    UPSERT          (33, UpsertPlanNode.class),
 
     //
     // Communication Nodes
@@ -89,7 +87,7 @@ public enum PlanNodeType {
     PROJECTION      (54, ProjectionPlanNode.class),
     MATERIALIZE     (55, MaterializePlanNode.class),
     LIMIT           (56, LimitPlanNode.class),
-    DISTINCT        (57, DistinctPlanNode.class)
+    PARTIALAGGREGATE(57, PartialAggregatePlanNode.class)
 
     ;
 

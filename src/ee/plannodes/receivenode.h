@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This file contains original code and/or modifications of original code.
  * Any modifications made by VoltDB Inc. are licensed under the following
@@ -48,24 +48,20 @@
 
 #include "abstractplannode.h"
 
-namespace voltdb
-{
+namespace voltdb {
 
 class ReceivePlanNode : public AbstractPlanNode
 {
- public:
-    ReceivePlanNode(CatalogId id);
-    ReceivePlanNode();
+public:
+    ReceivePlanNode() { }
     ~ReceivePlanNode();
-
-    virtual PlanNodeType getPlanNodeType() const;
-
+    PlanNodeType getPlanNodeType() const;
     std::string debugInfo(const std::string& spacer) const;
 
 protected:
-    virtual void loadFromJSONObject(PlannerDomValue obj);
+    void loadFromJSONObject(PlannerDomValue obj);
 };
 
-}
+} // namespace voltdb
 
 #endif

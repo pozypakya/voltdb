@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -17,32 +17,46 @@
 
 package org.voltdb.compiler;
 
+import org.voltdb.AuthSystem;
 import org.voltdb.client.ProcedureInvocationType;
 
 public class CatalogChangeWork extends AsyncCompilerWork {
     private static final long serialVersionUID = -5257248292283453286L;
 
-    final byte[] catalogBytes;
-    final String deploymentString;
+    // The bytes for the catalog operation, if any.  May be null in all cases
+    // For @UpdateApplicationCatalog, this will contain the compiled catalog jarfile bytes
+    // For @UpdateClasses, this will contain the class jarfile bytes
+    // For @AdHoc DDL work, this will be null
+    final byte[] operationBytes;
+    // The string for the catalog operation, if any.  May be null in all cases
+    // For @UpdateApplicationCatalog, this will contain the deployment string to apply
+    // For @UpdateClasses, this will contain the class deletion patterns
+    // For @AdHoc DDL work, this will be null
+    final String operationString;
     final String[] adhocDDLStmts;
 
     public CatalogChangeWork(
             long replySiteId,
             long clientHandle, long connectionId, String hostname, boolean adminConnection,
-            Object clientData, byte[] catalogBytes, String deploymentString,
-            ProcedureInvocationType type, long originalTxnId, long originalUniqueId,
-            AsyncCompilerWorkCompletionHandler completionHandler)
+            Object clientData, byte[] operationBytes, String operationString,
+            String invocationName, ProcedureInvocationType type,
+            long originalTxnId, long originalUniqueId,
+            boolean onReplica, boolean useAdhocDDL,
+            AsyncCompilerWorkCompletionHandler completionHandler,
+            AuthSystem.AuthUser user)
     {
         super(replySiteId, false, clientHandle, connectionId, hostname,
-              adminConnection, clientData, type, originalTxnId, originalUniqueId,
-              completionHandler);
-        if (catalogBytes != null) {
-            this.catalogBytes = catalogBytes.clone();
+              adminConnection, clientData, invocationName, type,
+              originalTxnId, originalUniqueId,
+              onReplica, useAdhocDDL,
+              completionHandler, user);
+        if (operationBytes != null) {
+            this.operationBytes = operationBytes.clone();
         }
         else {
-            this.catalogBytes = null;
+            this.operationBytes = null;
         }
-        this.deploymentString = deploymentString;
+        this.operationString = operationString;
         adhocDDLStmts = null;
     }
 
@@ -60,14 +74,18 @@ public class CatalogChangeWork extends AsyncCompilerWork {
               adhocDDL.hostname,
               adhocDDL.adminConnection,
               adhocDDL.clientData,
+              adhocDDL.invocationName,
               adhocDDL.invocationType,
               adhocDDL.originalTxnId,
               adhocDDL.originalUniqueId,
-              adhocDDL.completionHandler);
+              adhocDDL.onReplica,
+              adhocDDL.useAdhocDDL,
+              adhocDDL.completionHandler,
+              adhocDDL.user);
         // AsyncCompilerAgentHelper will fill in the current catalog bytes later.
-        this.catalogBytes = null;
+        this.operationBytes = null;
         // Ditto for deployment string
-        this.deploymentString = null;
+        this.operationString = null;
         this.adhocDDLStmts = adhocDDL.sqlStatements;
     }
 }

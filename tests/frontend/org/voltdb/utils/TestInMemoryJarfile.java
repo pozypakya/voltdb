@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -41,16 +41,13 @@ import org.voltdb.catalog.Catalog;
 import org.voltdb.catalog.Database;
 import org.voltdb.compiler.VoltCompiler;
 import org.voltdb.compiler.VoltProjectBuilder;
+import org.voltdb.utils.InMemoryJarfile.JarLoader;
 
 public class TestInMemoryJarfile extends TestCase {
 
     protected File m_jarPath;
     protected Catalog m_catalog;
     protected Database m_catalogDb;
-    // For backward compatibility test of <groups> and <group> elements.
-    protected File m_jarPathWithGroupInsteadOfRole;
-    protected Catalog m_catalogWithGroupInsteadOfRole;
-    protected Database m_catalogDbWithGroupInsteadOfRole;
 
     private Catalog createTestJarFile(String jarFileName, boolean adhoc, String elemPfx)
     {
@@ -67,7 +64,7 @@ public class TestInMemoryJarfile extends TestCase {
             "<project>" +
             "<database name='database'>" +
             "<%ss>" +
-            "<%s adhoc='" + Boolean.toString(adhoc) + "' name='default' sysproc='true'/>" +
+            "<%s adhoc='" + Boolean.toString(adhoc) + "' name='default' sysproc='false'/>" +
             "</%ss>" +
             "<schemas><schema path='" + schemaPath + "' /></schemas>" +
             "<procedures><procedure class='org.voltdb.compiler.procedures.TPCCTestProc' /></procedures>" +
@@ -96,12 +93,6 @@ public class TestInMemoryJarfile extends TestCase {
         m_catalogDb = m_catalog.getClusters().get("cluster").getDatabases().get("database");
         assertNotNull(m_catalogDb);
         m_jarPath = new File("testout.jar");
-        m_catalogWithGroupInsteadOfRole = createTestJarFile("testout_with_groups.jar", true, "group");
-        assertNotNull(m_catalogWithGroupInsteadOfRole);
-        m_catalogDbWithGroupInsteadOfRole = m_catalogWithGroupInsteadOfRole.getClusters().
-                                                get("cluster").getDatabases().get("database");
-        assertNotNull(m_catalogDbWithGroupInsteadOfRole);
-        m_jarPathWithGroupInsteadOfRole = new File("testout_with_groups.jar");
     }
 
     @Override
@@ -173,19 +164,23 @@ public class TestInMemoryJarfile extends TestCase {
         assertFalse(crc1 == crc2);
     }
 
-    public void testIdenticalJarContentsWithGroupsMatchCRCs()
-    throws IOException, InterruptedException
+    public void testJarfileRemoveClassRemovesInnerClasses() throws Exception
     {
-        // Same as testIdenticalJarContentsMatchCRCs but with <groups>
-        // instead of <roles>.
-        // Create a second jarfile with identical contents
-        // Sleep for 5 seconds so the timestamps will differ
-        // and cause different global CRCs
-        // Use "group*" element names for backward compatibility test.
-        Thread.sleep(5000);
-        createTestJarFile("testout-dupe-groups.jar", true, "group");
-        long crc1 = new InMemoryJarfile(m_jarPathWithGroupInsteadOfRole).getCRC();
-        long crc2 = new InMemoryJarfile("testout-dupe-groups.jar").getCRC();
-        assertEquals(crc1, crc2);
+        InMemoryJarfile dut = new InMemoryJarfile();
+        // Add a class file that we know has inner classes
+        // Someday this seems like it should be an operation directly on InMemoryJarfile
+        VoltCompiler comp = new VoltCompiler();
+        // This will pull in all the inner classes (currently 4 of them), but check anyway
+        comp.addClassToJar(dut, org.voltdb_testprocs.updateclasses.InnerClassesTestProc.class);
+        JarLoader loader = dut.getLoader();
+        assertEquals(5, loader.getClassNames().size());
+        System.out.println(loader.getClassNames());
+        assertTrue(loader.getClassNames().contains("org.voltdb_testprocs.updateclasses.InnerClassesTestProc$InnerNotPublic"));
+        assertTrue(dut.get("org/voltdb_testprocs/updateclasses/InnerClassesTestProc$InnerNotPublic.class") != null);
+
+        // Now, remove the outer class and verify that all the inner classes go away.
+        dut.removeClassFromJar("org.voltdb_testprocs.updateclasses.InnerClassesTestProc");
+        assertTrue(loader.getClassNames().isEmpty());
+        assertTrue(dut.get("org/voltdb_testprocs/updateclasses/InnerClassesTestProc$InnerNotPublic.class") == null);
     }
 }

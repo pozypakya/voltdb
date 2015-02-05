@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This file contains original code and/or modifications of original code.
  * Any modifications made by VoltDB Inc. are licensed under the following
@@ -82,6 +82,18 @@ class AbstractExecutor {
             VOLT_TRACE("Clearing output table...");
             m_tmpOutputTable->deleteAllTuplesNonVirtual(false);
         }
+    }
+
+    inline void cleanupInputTempTable(Table * input_table) {
+        TempTable* tmp_input_table = dynamic_cast<TempTable*>(input_table);
+        if (tmp_input_table) {
+            // No need of its input temp table
+            tmp_input_table->deleteAllTuplesNonVirtual(false);
+        }
+    }
+
+    virtual void cleanupMemoryPool() {
+        // LEAVE as blank on purpose
     }
 
   protected:

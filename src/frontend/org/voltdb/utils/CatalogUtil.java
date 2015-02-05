@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -23,6 +23,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringWriter;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.ByteBuffer;
@@ -31,9 +32,9 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -41,10 +42,14 @@ import java.util.TreeSet;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBElement;
 import javax.xml.bind.JAXBException;
+import javax.xml.bind.Marshaller;
 import javax.xml.bind.Unmarshaller;
+import javax.xml.namespace.QName;
 import javax.xml.validation.Schema;
 import javax.xml.validation.SchemaFactory;
 
+import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.zookeeper_voltpatches.CreateMode;
 import org.apache.zookeeper_voltpatches.KeeperException;
 import org.apache.zookeeper_voltpatches.ZooDefs.Ids;
@@ -73,7 +78,6 @@ import org.voltdb.catalog.Group;
 import org.voltdb.catalog.GroupRef;
 import org.voltdb.catalog.Index;
 import org.voltdb.catalog.PlanFragment;
-import org.voltdb.catalog.Procedure;
 import org.voltdb.catalog.SnapshotSchedule;
 import org.voltdb.catalog.Statement;
 import org.voltdb.catalog.Systemsettings;
@@ -81,27 +85,26 @@ import org.voltdb.catalog.Table;
 import org.voltdb.common.Constants;
 import org.voltdb.compiler.ClusterConfig;
 import org.voltdb.compiler.VoltCompiler;
+import org.voltdb.compiler.deploymentfile.AdminModeType;
 import org.voltdb.compiler.deploymentfile.ClusterType;
 import org.voltdb.compiler.deploymentfile.CommandLogType;
 import org.voltdb.compiler.deploymentfile.CommandLogType.Frequency;
 import org.voltdb.compiler.deploymentfile.DeploymentType;
 import org.voltdb.compiler.deploymentfile.ExportConfigurationType;
 import org.voltdb.compiler.deploymentfile.ExportType;
+import org.voltdb.compiler.deploymentfile.HeartbeatType;
 import org.voltdb.compiler.deploymentfile.HttpdType;
-import org.voltdb.compiler.deploymentfile.PathEntry;
+import org.voltdb.compiler.deploymentfile.PartitionDetectionType;
 import org.voltdb.compiler.deploymentfile.PathsType;
 import org.voltdb.compiler.deploymentfile.PropertyType;
-import org.voltdb.compiler.deploymentfile.SecurityProviderString;
+import org.voltdb.compiler.deploymentfile.ReplicationType;
+import org.voltdb.compiler.deploymentfile.SchemaType;
 import org.voltdb.compiler.deploymentfile.SecurityType;
 import org.voltdb.compiler.deploymentfile.SnapshotType;
 import org.voltdb.compiler.deploymentfile.SystemSettingsType;
-import org.voltdb.compiler.deploymentfile.SystemSettingsType.Temptables;
 import org.voltdb.compiler.deploymentfile.UsersType;
-import org.voltdb.compilereport.IndexAnnotation;
-import org.voltdb.compilereport.ProcedureAnnotation;
-import org.voltdb.compilereport.StatementAnnotation;
-import org.voltdb.compilereport.TableAnnotation;
 import org.voltdb.export.ExportDataProcessor;
+import org.voltdb.export.ExportManager;
 import org.voltdb.expressions.AbstractExpression;
 import org.voltdb.planner.parseinfo.StmtTargetTableScan;
 import org.voltdb.plannodes.AbstractPlanNode;
@@ -120,18 +123,36 @@ public abstract class CatalogUtil {
     public static final String CATALOG_FILENAME = "catalog.txt";
     public static final String CATALOG_BUILDINFO_FILENAME = "buildinfo.txt";
 
+    private static JAXBContext m_jc;
+    private static Schema m_schema;
+    static {
+        try {
+            // This schema shot the sheriff.
+            m_jc = JAXBContext.newInstance("org.voltdb.compiler.deploymentfile");
+            SchemaFactory sf = SchemaFactory.newInstance(javax.xml.XMLConstants.W3C_XML_SCHEMA_NS_URI);
+            m_schema = sf.newSchema(VoltDB.class.getResource("compiler/DeploymentFileSchema.xsd"));
+        } catch (JAXBException ex) {
+            m_jc = null;
+            m_schema = null;
+            hostLog.error("Failed to create JAXB Context for deployment.", ex);
+        } catch (SAXException e) {
+            m_jc = null;
+            m_schema = null;
+            hostLog.error("Error schema validating deployment.xml file. " + e.getMessage());
+        }
+    }
+
     /**
      * Load a catalog from the jar bytes.
      *
      * @param catalogBytes
-     * @param log
-     * @return Pair containing catalog serialized string and upgraded version (or null if it wasn't upgraded)
+     * @return Pair containing updated InMemoryJarFile and upgraded version (or null if it wasn't upgraded)
      * @throws IOException
      *             If the catalog cannot be loaded because it's incompatible, or
      *             if there is no version information in the catalog.
      */
-    public static Pair<String, String> loadAndUpgradeCatalogFromJar(byte[] catalogBytes, VoltLogger log)
-            throws IOException
+    public static Pair<InMemoryJarfile, String> loadAndUpgradeCatalogFromJar(byte[] catalogBytes)
+        throws IOException
     {
         // Throws IOException on load failure.
         InMemoryJarfile jarfile = loadInMemoryJarFile(catalogBytes);
@@ -139,9 +160,17 @@ public abstract class CatalogUtil {
         // I.e. jarfile may be modified.
         VoltCompiler compiler = new VoltCompiler();
         String upgradedFromVersion = compiler.upgradeCatalogAsNeeded(jarfile);
-        byte[] serializedCatalogBytes = jarfile.get(CATALOG_FILENAME);
+        return new Pair<InMemoryJarfile, String>(jarfile, upgradedFromVersion);
+    }
+
+    /**
+     * Convenience method to extract the catalog commands from an InMemoryJarfile as a string
+     */
+    public static String getSerializedCatalogStringFromJar(InMemoryJarfile jarfile)
+    {
+        byte[] serializedCatalogBytes = jarfile.get(CatalogUtil.CATALOG_FILENAME);
         String serializedCatalog = new String(serializedCatalogBytes, Constants.UTF8ENCODING);
-        return new Pair<String, String>(serializedCatalog, upgradedFromVersion);
+        return serializedCatalog;
     }
 
     /**
@@ -262,8 +291,9 @@ public abstract class CatalogUtil {
         boolean hasField = false;
         for (T item : items) {
             // check the first time through for the field
-            if (hasField == false)
-                hasField = item.getFields().contains(sortFieldName);
+            if (hasField == false) {
+                hasField = ArrayUtils.contains(item.getFields(), sortFieldName);
+            }
             assert(hasField == true);
 
             map.put(item.getField(sortFieldName), item);
@@ -423,73 +453,87 @@ public abstract class CatalogUtil {
         return true;
     }
 
-    public static long compileDeployment(Catalog catalog, String deploymentURL,
-            boolean crashOnFailedValidation, boolean isPlaceHolderCatalog) {
+    public static String compileDeployment(Catalog catalog, String deploymentURL,
+            boolean isPlaceHolderCatalog)
+    {
         DeploymentType deployment = CatalogUtil.parseDeployment(deploymentURL);
         if (deployment == null) {
-            return -1;
+            return "Error parsing deployment file: " + deploymentURL;
         }
-        return compileDeployment(catalog, deployment, crashOnFailedValidation, isPlaceHolderCatalog);
+        return compileDeployment(catalog, deployment, isPlaceHolderCatalog);
     }
 
-    public static long compileDeploymentString(Catalog catalog, String deploymentString,
-            boolean crashOnFailedValidation, boolean isPlaceHolderCatalog) {
+    public static String compileDeploymentString(Catalog catalog, String deploymentString,
+            boolean isPlaceHolderCatalog)
+    {
         DeploymentType deployment = CatalogUtil.parseDeploymentFromString(deploymentString);
         if (deployment == null) {
-            return -1;
+            return "Error parsing deployment string";
         }
-        return compileDeployment(catalog, deployment, crashOnFailedValidation, isPlaceHolderCatalog);
+        return compileDeployment(catalog, deployment, isPlaceHolderCatalog);
     }
 
     /**
      * Parse the deployment.xml file and add its data into the catalog.
      * @param catalog Catalog to be updated.
      * @param deployment Parsed representation of the deployment.xml file.
-     * @param crashOnFailedValidation
      * @param isPlaceHolderCatalog if the catalog is isPlaceHolderCatalog and we are verifying only deployment xml.
-     * @return CRC of the deployment contents (>0) or -1 on failure.
+     * @return String containing any errors parsing/validating the deployment. NULL on success.
      */
-    public static long compileDeployment(Catalog catalog,
+    public static String compileDeployment(Catalog catalog,
             DeploymentType deployment,
-            boolean crashOnFailedValidation,
             boolean isPlaceHolderCatalog)
     {
-        if (!validateDeployment(catalog, deployment)) {
-            return -1;
+        String errmsg = null;
+
+        try {
+            validateDeployment(catalog, deployment);
+
+            // add our hacky Deployment to the catalog
+            catalog.getClusters().get("cluster").getDeployment().add("deployment");
+
+            // set the cluster info
+            setClusterInfo(catalog, deployment);
+
+            //Set the snapshot schedule
+            setSnapshotInfo( catalog, deployment.getSnapshot());
+
+            //Set enable security
+            setSecurityEnabled(catalog, deployment.getSecurity());
+
+            //set path and path overrides
+            // NOTE: this must be called *AFTER* setClusterInfo and setSnapshotInfo
+            // because path locations for snapshots and partition detection don't
+            // exist in the catalog until after those portions of the deployment
+            // file are handled.
+            setPathsInfo(catalog, deployment.getPaths());
+
+            // set the users info
+            // We'll skip this when building the dummy catalog on startup
+            // so that we don't spew misleading user/role warnings
+            if (!isPlaceHolderCatalog) {
+                setUsersInfo(catalog, deployment.getUsers());
+            }
+
+            // set the HTTPD info
+            setHTTPDInfo(catalog, deployment.getHttpd());
+
+            if (!isPlaceHolderCatalog) {
+                setExportInfo(catalog, deployment.getExport());
+            }
+
+            setCommandLogInfo( catalog, deployment.getCommandlog());
+        }
+        catch (Exception e) {
+            // Anything that goes wrong anywhere in trying to handle the deployment file
+            // should return an error, and let the caller decide what to do (crash or not, for
+            // example)
+            errmsg = "Error validating deployment configuration: " + e.getMessage();
+            hostLog.error(errmsg);
+            return errmsg;
         }
 
-        // add our hacky Deployment to the catalog
-        catalog.getClusters().get("cluster").getDeployment().add("deployment");
-
-        // set the cluster info
-        setClusterInfo(catalog, deployment);
-
-        //Set the snapshot schedule
-        setSnapshotInfo( catalog, deployment.getSnapshot());
-
-        //Set enable security
-        setSecurityEnabled(catalog, deployment.getSecurity());
-
-        //set path and path overrides
-        // NOTE: this must be called *AFTER* setClusterInfo and setSnapshotInfo
-        // because path locations for snapshots and partition detection don't
-        // exist in the catalog until after those portions of the deployment
-        // file are handled.
-        setPathsInfo(catalog, deployment.getPaths(), crashOnFailedValidation);
-
-        // set the users info
-        setUsersInfo(catalog, deployment.getUsers());
-
-        // set the HTTPD info
-        setHTTPDInfo(catalog, deployment.getHttpd());
-
-        if (!isPlaceHolderCatalog) {
-            setExportInfo(catalog, deployment.getExport());
-        }
-
-        setCommandLogInfo( catalog, deployment.getCommandlog());
-
-        return 1;
+        return null;
     }
 
     /*
@@ -498,38 +542,26 @@ public abstract class CatalogUtil {
     private static void setCommandLogInfo(Catalog catalog, CommandLogType commandlog) {
         int fsyncInterval = 200;
         int maxTxnsBeforeFsync = Integer.MAX_VALUE;
-        boolean enabled = false;
-        // enterprise voltdb defaults to CL enabled if not specified in the XML
-        if (MiscUtils.isPro()) {
-            enabled = true;
-        }
-        boolean sync = false;
-        int logSizeMb = 1024;
         org.voltdb.catalog.CommandLog config = catalog.getClusters().get("cluster").getLogconfig().get("log");
-        if (commandlog != null) {
-            logSizeMb = commandlog.getLogsize();
-            sync = commandlog.isSynchronous();
-            enabled = commandlog.isEnabled();
-            Frequency freq = commandlog.getFrequency();
-            if (freq != null) {
-                long maxTxnsBeforeFsyncTemp = freq.getTransactions();
-                if (maxTxnsBeforeFsyncTemp < 1 || maxTxnsBeforeFsyncTemp > Integer.MAX_VALUE) {
-                    throw new RuntimeException("Invalid command log max txns before fsync (" + maxTxnsBeforeFsync
-                            + ") specified. Supplied value must be between 1 and (2^31 - 1) txns");
-                }
-                maxTxnsBeforeFsync = (int)maxTxnsBeforeFsyncTemp;
-                fsyncInterval = freq.getTime();
-                if (fsyncInterval < 1 | fsyncInterval > 5000) {
-                    throw new RuntimeException("Invalid command log fsync interval(" + fsyncInterval
-                            + ") specified. Supplied value must be between 1 and 5000 milliseconds");
-                }
+        Frequency freq = commandlog.getFrequency();
+        if (freq != null) {
+            long maxTxnsBeforeFsyncTemp = freq.getTransactions();
+            if (maxTxnsBeforeFsyncTemp < 1 || maxTxnsBeforeFsyncTemp > Integer.MAX_VALUE) {
+                throw new RuntimeException("Invalid command log max txns before fsync (" + maxTxnsBeforeFsync
+                        + ") specified. Supplied value must be between 1 and (2^31 - 1) txns");
+            }
+            maxTxnsBeforeFsync = (int)maxTxnsBeforeFsyncTemp;
+            fsyncInterval = freq.getTime();
+            if (fsyncInterval < 1 | fsyncInterval > 5000) {
+                throw new RuntimeException("Invalid command log fsync interval(" + fsyncInterval
+                        + ") specified. Supplied value must be between 1 and 5000 milliseconds");
             }
         }
-        config.setEnabled(enabled);
-        config.setSynchronous(sync);
+        config.setEnabled(commandlog.isEnabled());
+        config.setSynchronous(commandlog.isSynchronous());
         config.setFsyncinterval(fsyncInterval);
         config.setMaxtxns(maxTxnsBeforeFsync);
-        config.setLogsize(logSizeMb);
+        config.setLogsize(commandlog.getLogsize());
     }
 
     /**
@@ -585,15 +617,15 @@ public abstract class CatalogUtil {
     @SuppressWarnings("unchecked")
     public static DeploymentType getDeployment(InputStream deployIS) {
         try {
-            JAXBContext jc = JAXBContext.newInstance("org.voltdb.compiler.deploymentfile");
-            // This schema shot the sheriff.
-            SchemaFactory sf = SchemaFactory.newInstance(javax.xml.XMLConstants.W3C_XML_SCHEMA_NS_URI);
-            Schema schema = sf.newSchema(VoltDB.class.getResource("compiler/DeploymentFileSchema.xsd"));
-            Unmarshaller unmarshaller = jc.createUnmarshaller();
-            unmarshaller.setSchema(schema);
+            if (m_jc == null || m_schema == null) {
+                throw new RuntimeException("Error schema validation.");
+            }
+            Unmarshaller unmarshaller = m_jc.createUnmarshaller();
+            unmarshaller.setSchema(m_schema);
             JAXBElement<DeploymentType> result =
                 (JAXBElement<DeploymentType>) unmarshaller.unmarshal(deployIS);
             DeploymentType deployment = result.getValue();
+            populateDefaultDeployment(deployment);
             return deployment;
         } catch (JAXBException e) {
             // Convert some linked exceptions to more friendly errors.
@@ -606,45 +638,194 @@ public abstract class CatalogUtil {
             } else {
                 throw new RuntimeException(e);
             }
-        } catch (SAXException e) {
-            hostLog.error("Error schema validating deployment.xml file. " + e.getMessage());
-            return null;
+        }
+    }
+
+    public static void populateDefaultDeployment(DeploymentType deployment) {
+            //partition detection
+            PartitionDetectionType pd = deployment.getPartitionDetection();
+            if (pd == null) {
+                pd = new PartitionDetectionType();
+                deployment.setPartitionDetection(pd);
+            }
+            if (pd.getSnapshot() == null) {
+                PartitionDetectionType.Snapshot sshot = new PartitionDetectionType.Snapshot();
+                pd.setSnapshot(sshot);
+            }
+            //admin mode
+            if (deployment.getAdminMode() == null) {
+                AdminModeType amode = new AdminModeType();
+                deployment.setAdminMode(amode);
+            }
+            //heartbeat
+            if (deployment.getHeartbeat() == null) {
+                HeartbeatType hb = new HeartbeatType();
+                deployment.setHeartbeat(hb);
+            }
+            //httpd
+            HttpdType httpd = deployment.getHttpd();
+            if (httpd == null) {
+                httpd = new HttpdType();
+                //-1 means find next port from 8080
+                httpd.setPort(-1);
+                deployment.setHttpd(httpd);
+            }
+            //jsonApi
+            HttpdType.Jsonapi jsonApi = httpd.getJsonapi();
+            if (jsonApi == null) {
+                jsonApi = new HttpdType.Jsonapi();
+                httpd.setJsonapi(jsonApi);
+            }
+            //replication
+            if (deployment.getReplication() == null) {
+                ReplicationType repl = new ReplicationType();
+                deployment.setReplication(repl);
+            }
+            //snapshot
+            if (deployment.getSnapshot() == null) {
+                SnapshotType snap = new SnapshotType();
+                snap.setEnabled(false);
+                deployment.setSnapshot(snap);
+            }
+            //Security
+            if (deployment.getSecurity() == null) {
+                SecurityType sec = new SecurityType();
+                deployment.setSecurity(sec);
+            }
+            //Paths
+            if (deployment.getPaths() == null) {
+                PathsType paths = new PathsType();
+                deployment.setPaths(paths);
+            }
+            //create paths entries
+            PathsType paths = deployment.getPaths();
+            if (paths.getVoltdbroot() == null) {
+                PathsType.Voltdbroot root = new PathsType.Voltdbroot();
+                paths.setVoltdbroot(root);
+            }
+            //snapshot
+            if (paths.getSnapshots() == null) {
+                PathsType.Snapshots snap = new PathsType.Snapshots();
+                paths.setSnapshots(snap);
+            }
+            if (paths.getCommandlog() == null) {
+                //cl
+                PathsType.Commandlog cl = new PathsType.Commandlog();
+                paths.setCommandlog(cl);
+            }
+            if (paths.getCommandlogsnapshot() == null) {
+                //cl snap
+                PathsType.Commandlogsnapshot clsnap = new PathsType.Commandlogsnapshot();
+                paths.setCommandlogsnapshot(clsnap);
+            }
+            if (paths.getExportoverflow() == null) {
+                //export overflow
+                PathsType.Exportoverflow exp = new PathsType.Exportoverflow();
+                paths.setExportoverflow(exp);
+            }
+
+            //Command log info
+            if (deployment.getCommandlog() == null) {
+                boolean enabled = false;
+                if (MiscUtils.isPro()) {
+                    enabled = true;
+                }
+                CommandLogType cl = new CommandLogType();
+                cl.setEnabled(enabled);
+                Frequency freq = new Frequency();
+                cl.setFrequency(freq);
+                deployment.setCommandlog(cl);
+            }
+            //System settings
+            SystemSettingsType ss = deployment.getSystemsettings();
+            if (deployment.getSystemsettings() == null) {
+                ss = new SystemSettingsType();
+                deployment.setSystemsettings(ss);
+            }
+            SystemSettingsType.Elastic sse = ss.getElastic();
+            if (sse == null) {
+               sse = new SystemSettingsType.Elastic();
+               ss.setElastic(sse);
+            }
+            SystemSettingsType.Query query = ss.getQuery();
+            if (query == null) {
+               query = new SystemSettingsType.Query();
+               ss.setQuery(query);
+            }
+            SystemSettingsType.Snapshot snap = ss.getSnapshot();
+            if (snap == null) {
+               snap = new SystemSettingsType.Snapshot();
+               ss.setSnapshot(snap);
+            }
+            SystemSettingsType.Temptables tt = ss.getTemptables();
+            if (tt == null) {
+               tt = new SystemSettingsType.Temptables();
+               ss.setTemptables(tt);
+            }
+    }
+
+    /**
+     * Given the deployment object generate the XML
+     * @param deployment
+     * @return XML of deployment object.
+     * @throws IOException
+     */
+    public static String getDeployment(DeploymentType deployment) throws IOException {
+        try {
+            if (m_jc == null || m_schema == null) {
+                throw new RuntimeException("Error schema validation.");
+            }
+            Marshaller marshaller = m_jc.createMarshaller();
+            marshaller.setSchema(m_schema);
+            StringWriter sw = new StringWriter();
+            marshaller.marshal(new JAXBElement(new QName("","deployment"), DeploymentType.class, deployment), sw);
+            return sw.toString();
+        } catch (JAXBException e) {
+            // Convert some linked exceptions to more friendly errors.
+            if (e.getLinkedException() instanceof java.io.FileNotFoundException) {
+                hostLog.error(e.getLinkedException().getMessage());
+                return null;
+            } else if (e.getLinkedException() instanceof org.xml.sax.SAXParseException) {
+                hostLog.error("Error schema validating deployment.xml file. " + e.getLinkedException().getMessage());
+                return null;
+            } else {
+                throw new RuntimeException(e);
+            }
         }
     }
 
     /**
-     * Validate the contents of the deployment.xml file. This is for things like making sure users aren't being added to
-     * non-existent groups, not for validating XML syntax.
+     * Validate the contents of the deployment.xml file.
+     * This is for validating VoltDB requirements, not XML schema correctness
      * @param catalog Catalog to be validated against.
      * @param deployment Reference to root <deployment> element of deployment file to be validated.
-     * @return Returns true if the deployment file is valid.
+     * @throw throws a RuntimeException if any validation fails
      */
-    private static boolean validateDeployment(Catalog catalog, DeploymentType deployment) {
-        if (deployment.getUsers() == null) {
-            return true;
-        }
+    private static void validateDeployment(Catalog catalog, DeploymentType deployment) {
+        if (deployment.getSecurity() != null && deployment.getSecurity().isEnabled()) {
+            if (deployment.getUsers() == null) {
+                String msg = "Cannot enable security without defining at least one user in the built-in ADMINISTRATOR role in the deployment file.";
+                throw new RuntimeException(msg);
+            }
 
-        Cluster cluster = catalog.getClusters().get("cluster");
-        Database database = cluster.getDatabases().get("database");
-        Set<String> validGroups = new HashSet<String>();
-        for (Group group : database.getGroups()) {
-            validGroups.add(group.getTypeName());
-        }
+            boolean foundAdminUser = false;
+            for (UsersType.User user : deployment.getUsers().getUser()) {
+                if (user.getRoles() == null)
+                    continue;
 
-        for (UsersType.User user : deployment.getUsers().getUser()) {
-            if (user.getGroups() == null && user.getRoles() == null)
-                continue;
-
-            for (String group : mergeUserRoles(user)) {
-                if (!validGroups.contains(group)) {
-                    hostLog.error("Cannot assign user \"" + user.getName() + "\" to non-existent group \"" + group +
-                            "\"");
-                    return false;
+                for (String role : extractUserRoles(user)) {
+                    if (role.equalsIgnoreCase("ADMINISTRATOR")) {
+                        foundAdminUser = true;
+                        break;
+                    }
                 }
             }
-        }
 
-        return true;
+            if (!foundAdminUser) {
+                String msg = "Cannot enable security without defining at least one user in the built-in ADMINISTRATOR role in the deployment file.";
+                throw new RuntimeException(msg);
+            }
+        }
     }
 
     /**
@@ -662,7 +843,7 @@ public abstract class CatalogUtil {
         ClusterConfig config = new ClusterConfig(hostCount, sitesPerHost, kFactor);
 
         if (!config.validate()) {
-            hostLog.error(config.getErrorMsg());
+            throw new RuntimeException(config.getErrorMsg());
         } else {
             Cluster catCluster = catalog.getClusters().get("cluster");
             // copy the deployment info that is currently not recorded anywhere else
@@ -672,53 +853,37 @@ public abstract class CatalogUtil {
             catDeploy.setKfactor(kFactor);
             // copy partition detection configuration from xml to catalog
             String defaultPPDPrefix = "partition_detection";
-            if (deployment.getPartitionDetection() != null) {
-                if (deployment.getPartitionDetection().isEnabled()) {
-                    catCluster.setNetworkpartition(true);
-                    CatalogMap<SnapshotSchedule> faultsnapshots = catCluster.getFaultsnapshots();
-                    SnapshotSchedule sched = faultsnapshots.add("CLUSTER_PARTITION");
-                    if (deployment.getPartitionDetection().getSnapshot() != null) {
-                        sched.setPrefix(deployment.getPartitionDetection().getSnapshot().getPrefix());
-                    }
-                    else {
-                        sched.setPrefix(defaultPPDPrefix);
-                    }
-                }
-                else {
-                    catCluster.setNetworkpartition(false);
-                }
-            }
-            else {
-                // Default partition detection on
+            if (deployment.getPartitionDetection().isEnabled()) {
                 catCluster.setNetworkpartition(true);
                 CatalogMap<SnapshotSchedule> faultsnapshots = catCluster.getFaultsnapshots();
                 SnapshotSchedule sched = faultsnapshots.add("CLUSTER_PARTITION");
-                sched.setPrefix(defaultPPDPrefix);
+                if (deployment.getPartitionDetection().getSnapshot() != null) {
+                    sched.setPrefix(deployment.getPartitionDetection().getSnapshot().getPrefix());
+                }
+                else {
+                    sched.setPrefix(defaultPPDPrefix);
+                }
+            }
+            else {
+                catCluster.setNetworkpartition(false);
             }
 
-            // copy admin mode configuration from xml to catalog
-            if (deployment.getAdminMode() != null)
-            {
-                catCluster.setAdminport(deployment.getAdminMode().getPort());
-                catCluster.setAdminstartup(deployment.getAdminMode().isAdminstartup());
-            }
-            else
-            {
-                // encode the default values
-                catCluster.setAdminport(VoltDB.DEFAULT_ADMIN_PORT);
-                catCluster.setAdminstartup(false);
-            }
+            catCluster.setAdminport(deployment.getAdminMode().getPort());
+            catCluster.setAdminstartup(deployment.getAdminMode().isAdminstartup());
 
             setSystemSettings(deployment, catDeploy);
 
-            if (deployment.getHeartbeat() != null)
-            {
-                catCluster.setHeartbeattimeout(deployment.getHeartbeat().getTimeout());
+            catCluster.setHeartbeattimeout(deployment.getHeartbeat().getTimeout());
+
+            // copy schema modification behavior from xml to catalog
+            if (cluster.getSchema() != null) {
+                catCluster.setUseddlschema(cluster.getSchema() == SchemaType.DDL);
             }
-            else
-            {
-                // default to 10 seconds
-                catCluster.setHeartbeattimeout(10);
+            else {
+                // Don't think we can get here, deployment schema guarantees a default value
+                hostLog.warn("Schema modification setting not found. " +
+                        "Forcing default behavior of UpdateCatalog to modify database schema.");
+                catCluster.setUseddlschema(false);
             }
         }
     }
@@ -729,34 +894,15 @@ public abstract class CatalogUtil {
         // Create catalog Systemsettings
         Systemsettings syssettings =
             catDeployment.getSystemsettings().add("systemsettings");
-        int maxtemptablesize = 100;
-        int snapshotpriority = 6;
-        int elasticPauseTime = 50;
-        int elasticThroughput = 2;
-        if (deployment.getSystemsettings() != null)
-        {
-            Temptables temptables = deployment.getSystemsettings().getTemptables();
-            if (temptables != null)
-            {
-                maxtemptablesize = temptables.getMaxsize();
-            }
-            SystemSettingsType.Snapshot snapshot = deployment.getSystemsettings().getSnapshot();
-            if (snapshot != null) {
-                snapshotpriority = snapshot.getPriority();
-            }
-            SystemSettingsType.Elastic elastic = deployment.getSystemsettings().getElastic();
-            if (elastic != null) {
-                elasticPauseTime = deployment.getSystemsettings().getElastic().getDuration();
-                elasticThroughput = deployment.getSystemsettings().getElastic().getThroughput();
-            }
-        }
-        syssettings.setMaxtemptablesize(maxtemptablesize);
-        syssettings.setSnapshotpriority(snapshotpriority);
-        syssettings.setElasticpausetime(elasticPauseTime);
-        syssettings.setElasticthroughput(elasticThroughput);
+
+        syssettings.setTemptablemaxsize(deployment.getSystemsettings().getTemptables().getMaxsize());
+        syssettings.setSnapshotpriority(deployment.getSystemsettings().getSnapshot().getPriority());
+        syssettings.setElasticduration(deployment.getSystemsettings().getElastic().getDuration());
+        syssettings.setElasticthroughput(deployment.getSystemsettings().getElastic().getThroughput());
+        syssettings.setQuerytimeout(deployment.getSystemsettings().getQuery().getTimeout());
     }
 
-    private static void validateDirectory(String type, File path, boolean crashOnFailedValidation) {
+    private static void validateDirectory(String type, File path) {
         String error = null;
         do {
             if (!path.exists()) {
@@ -776,14 +922,92 @@ public abstract class CatalogUtil {
             }
         } while(false);
         if (error != null) {
-            if (crashOnFailedValidation) {
-                VoltDB.crashLocalVoltDB(error, false, null);
-            } else {
-                hostLog.warn(error);
-            }
+            throw new RuntimeException(error);
         }
     }
 
+    private static Properties checkExportProcessorConfiguration(ExportType exportType) {
+        // on-server export always uses the guest processor
+        String exportClientClassName = null;
+
+        switch(exportType.getTarget()) {
+            case FILE: exportClientClassName = "org.voltdb.exportclient.ExportToFileClient"; break;
+            case JDBC: exportClientClassName = "org.voltdb.exportclient.JDBCExportClient"; break;
+            case KAFKA: exportClientClassName = "org.voltdb.exportclient.KafkaExportClient"; break;
+            case RABBITMQ: exportClientClassName = "org.voltdb.exportclient.RabbitMQExportClient"; break;
+            case HTTP: exportClientClassName = "org.voltdb.exportclient.HttpExportClient"; break;
+            //Validate that we can load the class.
+            case CUSTOM:
+                exportClientClassName = exportType.getExportconnectorclass();
+                if (exportType.isEnabled()) try {
+                    CatalogUtil.class.getClassLoader().loadClass(exportClientClassName);
+                }
+                catch (ClassNotFoundException ex) {
+                    String msg =
+                            "Custom Export failed to configure, failed to load " +
+                            " export plugin class: " + exportType.getExportconnectorclass() +
+                            " Disabling export.";
+                    hostLog.error(msg);
+                    throw new DeploymentCheckException(msg);
+            }
+            break;
+        }
+
+        Properties processorProperties = new Properties();
+
+        if (exportClientClassName != null && exportClientClassName.trim().length() > 0) {
+            //Override for tests
+            String dexportClientClassName = System.getProperty(ExportDataProcessor.EXPORT_TO_TYPE, exportClientClassName);
+            processorProperties.setProperty(ExportDataProcessor.EXPORT_TO_TYPE, dexportClientClassName);
+        }
+
+        ExportConfigurationType exportConfiguration = exportType.getConfiguration();
+        if (exportConfiguration != null) {
+            List<PropertyType> configProperties = exportConfiguration.getProperty();
+            if (configProperties != null && ! configProperties.isEmpty()) {
+
+                for( PropertyType configProp: configProperties) {
+                    String key = configProp.getName();
+                    String value = configProp.getValue();
+                    if (!key.toLowerCase().contains("passw")) {
+                        processorProperties.setProperty(key, value.trim());
+                    } else {
+                        //Dont trim passwords
+                        processorProperties.setProperty(key, value);
+                    }
+                }
+            }
+        }
+
+        if (!exportType.isEnabled()) {
+            return processorProperties;
+        }
+
+        // Instantiate the Guest Processor
+        Class<?> processorClazz = null;
+        try {
+            processorClazz = Class.forName(ExportManager.PROCESSOR_CLASS);
+        } catch (ClassNotFoundException e) {
+            throw new DeploymentCheckException("Export is a PRO version only feature");
+        }
+        ExportDataProcessor processor = null;
+        try {
+            processor = (ExportDataProcessor)processorClazz.newInstance();
+        } catch (InstantiationException | IllegalAccessException e) {
+            hostLog.error("Unable to instantiate export processor", e);
+            throw new DeploymentCheckException("Unable to instantiate export processor", e);
+        }
+        try {
+            processor.addLogger(hostLog);
+            processor.setProcessorConfig(processorProperties);
+            processor.shutdown();
+        } catch (Exception e) {
+            hostLog.error("Export processor failed its configuration check", e);
+            throw new DeploymentCheckException("Export processor failed its configuration check: " + e.getMessage(), e);
+        }
+
+        return processorProperties;
+    }
     /**
      * Set deployment time settings for export
      * @param catalog The catalog to be updated.
@@ -794,79 +1018,44 @@ public abstract class CatalogUtil {
             return;
         }
 
-        boolean adminstate = exportType.isEnabled();
+        boolean isEnabled = exportType.isEnabled();
 
         Database db = catalog.getClusters().get("cluster").getDatabases().get("database");
         org.voltdb.catalog.Connector catconn = db.getConnectors().get("0");
         if (catconn == null) {
-            if (adminstate) {
+            if (isEnabled) {
                 hostLog.info("Export configuration enabled in deployment file however no export " +
                         "tables are present in the project file. Export disabled.");
             }
             return;
         }
 
+        Properties processorProperties = checkExportProcessorConfiguration(exportType);
+        for (String name: processorProperties.stringPropertyNames()) {
+            ConnectorProperty prop = catconn.getConfig().add(name);
+            prop.setName(name);
+            prop.setValue(processorProperties.getProperty(name));
+        }
+
         // on-server export always uses the guest processor
-        String connector = "org.voltdb.export.processors.GuestProcessor";
-        catconn.setLoaderclass(connector);
-        catconn.setEnabled(adminstate);
+        catconn.setLoaderclass(ExportManager.PROCESSOR_CLASS);
+        catconn.setEnabled(isEnabled);
 
-        String exportClientClassName = null;
+        //Set class back in deployment for display
+        exportType.setExportconnectorclass(
+                processorProperties.getProperty(ExportDataProcessor.EXPORT_TO_TYPE)
+                );
 
-        switch(exportType.getTarget()) {
-            case FILE: exportClientClassName = "org.voltdb.exportclient.ExportToFileClient"; break;
-            case JDBC: exportClientClassName = "org.voltdb.exportclient.JDBCExportClient"; break;
-            case KAFKA: exportClientClassName = "org.voltdb.exportclient.KafkaExportClient"; break;
-            //Validate that we can load the class.
-            case CUSTOM:
-                try {
-                    CatalogUtil.class.getClassLoader().loadClass(exportType.getExportconnectorclass());
-                    exportClientClassName = exportType.getExportconnectorclass();
-                }
-                catch (ClassNotFoundException ex) {
-                    hostLog.error(
-                            "Custom Export failed to configure, failed to load " +
-                            " export plugin class: " + exportType.getExportconnectorclass() +
-                            " Disabling export.");
-                exportType.setEnabled(false);
-                return;
-            }
-            break;
-        }
-
-        // this is OK as the deployment file XML schema does not allow for
-        // export configuration property names that begin with underscores
-        if (exportClientClassName != null && exportClientClassName.trim().length() > 0) {
-            ConnectorProperty prop = catconn.getConfig().add(ExportDataProcessor.EXPORT_TO_TYPE);
-            prop.setName(ExportDataProcessor.EXPORT_TO_TYPE);
-            //Override for tests
-            String dexportClientClassName = System.getProperty(ExportDataProcessor.EXPORT_TO_TYPE, exportClientClassName);
-            prop.setValue(dexportClientClassName);
-        }
-
-        ExportConfigurationType exportConfiguration = exportType.getConfiguration();
-        if (exportConfiguration != null) {
-
-            List<PropertyType> configProperties = exportConfiguration.getProperty();
-            if (configProperties != null && ! configProperties.isEmpty()) {
-
-                for( PropertyType configProp: configProperties) {
-                    ConnectorProperty prop = catconn.getConfig().add(configProp.getName());
-                    prop.setName(configProp.getName());
-                    prop.setValue(configProp.getValue());
-                }
-            }
-        }
-
-        if (!adminstate) {
+        if (!isEnabled) {
             hostLog.info("Export configuration is present and is " +
                "configured to be disabled. Export will be disabled.");
         } else {
             hostLog.info("Export is configured and enabled with type=" + exportType.getTarget());
+            ExportConfigurationType exportConfiguration = exportType.getConfiguration();
             if (exportConfiguration != null && exportConfiguration.getProperty() != null) {
                 hostLog.info("Export configuration properties are: ");
                 for (PropertyType configProp : exportConfiguration.getProperty()) {
-                    if (!configProp.getName().equalsIgnoreCase("password")) {
+                    if (!configProp.getName().toLowerCase().contains("passw")) {
                         hostLog.info("Export Configuration Property NAME=" + configProp.getName() + " VALUE=" + configProp.getValue());
                     }
                 }
@@ -883,19 +1072,8 @@ public abstract class CatalogUtil {
         Cluster cluster = catalog.getClusters().get("cluster");
         Database database = cluster.getDatabases().get("database");
 
-        boolean enabled = false;
-        if (security != null) {
-            enabled = security.isEnabled();
-        }
-        cluster.setSecurityenabled(enabled);
-
-        SecurityProviderString provider = SecurityProviderString.HASH;
-        if (enabled && security != null) {
-            if (security.getProvider() != null) {
-                provider = security.getProvider();
-            }
-        }
-        database.setSecurityprovider(provider.value());
+        cluster.setSecurityenabled(security.isEnabled());
+        database.setSecurityprovider(security.getProvider().value());
     }
 
     /**
@@ -906,90 +1084,58 @@ public abstract class CatalogUtil {
     private static void setSnapshotInfo(Catalog catalog, SnapshotType snapshotSettings) {
         Database db = catalog.getClusters().get("cluster").getDatabases().get("database");
         SnapshotSchedule schedule = db.getSnapshotschedule().add("default");
-        if (snapshotSettings != null)
-        {
-            schedule.setEnabled(snapshotSettings.isEnabled());
-            String frequency = snapshotSettings.getFrequency();
-            if (!frequency.endsWith("s") &&
-                    !frequency.endsWith("m") &&
-                    !frequency.endsWith("h")) {
-                hostLog.error(
-                        "Snapshot frequency " + frequency +
-                        " needs to end with time unit specified" +
-                        " that is one of [s, m, h] (seconds, minutes, hours)" +
-                        " Defaulting snapshot frequency to 10m.");
-                frequency = "10m";
-            }
-
-            int frequencyInt = 0;
-            String frequencySubstring = frequency.substring(0, frequency.length() - 1);
-            try {
-                frequencyInt = Integer.parseInt(frequencySubstring);
-            } catch (Exception e) {
-                hostLog.error("Frequency " + frequencySubstring +
-                        " is not an integer. Defaulting frequency to 10m.");
-                frequency = "10m";
-                frequencyInt = 10;
-            }
-
-            String prefix = snapshotSettings.getPrefix();
-            if (prefix == null || prefix.isEmpty()) {
-                hostLog.error("Snapshot prefix " + prefix +
-                " is not a valid prefix. Using prefix of 'SNAPSHOTNONCE' ");
-                prefix = "SNAPSHOTNONCE";
-            }
-
-            if (prefix.contains("-") || prefix.contains(",")) {
-                String oldprefix = prefix;
-                prefix = prefix.replaceAll("-", "_");
-                prefix = prefix.replaceAll(",", "_");
-                hostLog.error("Snapshot prefix " + oldprefix + " cannot include , or -." +
-                        " Using the prefix: " + prefix + " instead.");
-            }
-
-            int retain = snapshotSettings.getRetain();
-            if (retain < 1) {
-                hostLog.error("Snapshot retain value " + retain +
-                        " is not a valid value. Must be 1 or greater." +
-                        " Defaulting snapshot retain to 1.");
-                retain = 1;
-            }
-
-            schedule.setFrequencyunit(
-                    frequency.substring(frequency.length() - 1, frequency.length()));
-            schedule.setFrequencyvalue(frequencyInt);
-            schedule.setPrefix(prefix);
-            schedule.setRetain(retain);
+        schedule.setEnabled(snapshotSettings.isEnabled());
+        String frequency = snapshotSettings.getFrequency();
+        if (!frequency.endsWith("s") &&
+                !frequency.endsWith("m") &&
+                !frequency.endsWith("h")) {
+            hostLog.error(
+                    "Snapshot frequency " + frequency +
+                    " needs to end with time unit specified" +
+                    " that is one of [s, m, h] (seconds, minutes, hours)" +
+                    " Defaulting snapshot frequency to 10m.");
+            frequency = "10m";
         }
-        else
-        {
-            schedule.setEnabled(false);
-        }
-    }
 
-    private static File getFeaturePath(PathsType paths, PathEntry pathEntry,
-                                       File voltDbRoot,
-                                       String pathDescription, String defaultPath)
-    {
-        File featurePath;
-        if (paths == null || pathEntry == null) {
-            featurePath = new VoltFile(voltDbRoot, defaultPath);
-        } else {
-            featurePath = new VoltFile(pathEntry.getPath());
-            if (!featurePath.isAbsolute())
-            {
-                featurePath = new VoltFile(voltDbRoot, pathEntry.getPath());
-            }
+        int frequencyInt = 0;
+        String frequencySubstring = frequency.substring(0, frequency.length() - 1);
+        try {
+            frequencyInt = Integer.parseInt(frequencySubstring);
+        } catch (Exception e) {
+            hostLog.error("Frequency " + frequencySubstring +
+                    " is not an integer. Defaulting frequency to 10m.");
+            frequency = "10m";
+            frequencyInt = 10;
         }
-        if (!featurePath.exists()) {
-            hostLog.info("Creating " + pathDescription + " directory: " +
-                         featurePath.getAbsolutePath());
-            if (!featurePath.mkdirs()) {
-                hostLog.fatal("Failed to create " + pathDescription + " directory \"" +
-                              featurePath + "\"");
-            }
+
+        String prefix = snapshotSettings.getPrefix();
+        if (prefix == null || prefix.isEmpty()) {
+            hostLog.error("Snapshot prefix " + prefix +
+            " is not a valid prefix. Using prefix of 'SNAPSHOTNONCE' ");
+            prefix = "SNAPSHOTNONCE";
         }
-        return featurePath;
+
+        if (prefix.contains("-") || prefix.contains(",")) {
+            String oldprefix = prefix;
+            prefix = prefix.replaceAll("-", "_");
+            prefix = prefix.replaceAll(",", "_");
+            hostLog.error("Snapshot prefix " + oldprefix + " cannot include , or -." +
+                    " Using the prefix: " + prefix + " instead.");
+        }
+
+        int retain = snapshotSettings.getRetain();
+        if (retain < 1) {
+            hostLog.error("Snapshot retain value " + retain +
+                    " is not a valid value. Must be 1 or greater." +
+                    " Defaulting snapshot retain to 1.");
+            retain = 1;
+        }
+
+        schedule.setFrequencyunit(
+                frequency.substring(frequency.length() - 1, frequency.length()));
+        schedule.setFrequencyvalue(frequencyInt);
+        schedule.setPrefix(prefix);
+        schedule.setRetain(retain);
     }
 
     /**
@@ -998,67 +1144,20 @@ public abstract class CatalogUtil {
      * @param paths A reference to the <paths> element of the deployment.xml file.
      * @param printLog Whether or not to print paths info.
      */
-    private static void setPathsInfo(Catalog catalog, PathsType paths, boolean crashOnFailedValidation) {
+    private static void setPathsInfo(Catalog catalog, PathsType paths) {
         File voltDbRoot;
         final Cluster cluster = catalog.getClusters().get("cluster");
         // Handles default voltdbroot (and completely missing "paths" element).
         voltDbRoot = getVoltDbRoot(paths);
-
-        validateDirectory("volt root", voltDbRoot, crashOnFailedValidation);
-
-        PathEntry path_entry = null;
-        if (paths != null)
-        {
-            path_entry = paths.getSnapshots();
-        }
-        File snapshotPath =
-            getFeaturePath(paths, path_entry, voltDbRoot,
-                           "snapshot", "snapshots");
-        validateDirectory("snapshot path", snapshotPath, crashOnFailedValidation);
-
-        path_entry = null;
-        if (paths != null)
-        {
-            path_entry = paths.getExportoverflow();
-        }
-        File exportOverflowPath =
-            getFeaturePath(paths, path_entry, voltDbRoot, "export overflow",
-                           "export_overflow");
-        validateDirectory("export overflow", exportOverflowPath, crashOnFailedValidation);
-
+        //Snapshot
+        File snapshotPath = getSnapshot(paths.getSnapshots(), voltDbRoot);
+        //export overflow
+        File exportOverflowPath = getExportOverflow(paths.getExportoverflow(), voltDbRoot);
         // only use these directories in the enterprise version
         File commandLogPath = null;
         File commandLogSnapshotPath = null;
-
-        path_entry = null;
-        if (paths != null)
-        {
-            path_entry = paths.getCommandlog();
-        }
-        if (VoltDB.instance().getConfig().m_isEnterprise) {
-            commandLogPath =
-                    getFeaturePath(paths, path_entry, voltDbRoot, "command log", "command_log");
-            validateDirectory("command log", commandLogPath, crashOnFailedValidation);
-        }
-        else {
-            // dumb defaults if you ask for logging in community version
-            commandLogPath = new VoltFile(voltDbRoot, "command_log");
-        }
-
-        path_entry = null;
-        if (paths != null)
-        {
-            path_entry = paths.getCommandlogsnapshot();
-        }
-        if (VoltDB.instance().getConfig().m_isEnterprise) {
-            commandLogSnapshotPath =
-                getFeaturePath(paths, path_entry, voltDbRoot, "command log snapshot", "command_log_snapshot");
-            validateDirectory("command log snapshot", commandLogSnapshotPath, crashOnFailedValidation);
-        }
-        else {
-            // dumb defaults if you ask for logging in community version
-            commandLogSnapshotPath = new VoltFile(voltDbRoot, "command_log_snapshot");;
-        }
+        commandLogPath = getCommandLog(paths.getCommandlog(), voltDbRoot);
+        commandLogSnapshotPath = getCommandLogSnapshot(paths.getCommandlogsnapshot(), voltDbRoot);
 
         //Set the volt root in the catalog
         catalog.getClusters().get("cluster").setVoltroot(voltDbRoot.getPath());
@@ -1098,14 +1197,120 @@ public abstract class CatalogUtil {
             voltDbRoot = new VoltFile("voltdbroot");
             if (!voltDbRoot.exists()) {
                 hostLog.info("Creating voltdbroot directory: " + voltDbRoot.getAbsolutePath());
-                if (!voltDbRoot.mkdir()) {
+                if (!voltDbRoot.mkdirs()) {
                     hostLog.fatal("Failed to create voltdbroot directory \"" + voltDbRoot.getAbsolutePath() + "\"");
                 }
             }
         } else {
             voltDbRoot = new VoltFile(paths.getVoltdbroot().getPath());
+            if (!voltDbRoot.exists()) {
+                hostLog.info("Creating voltdbroot directory: " + voltDbRoot.getAbsolutePath());
+                if (!voltDbRoot.mkdirs()) {
+                    hostLog.fatal("Failed to create voltdbroot directory \"" + voltDbRoot.getAbsolutePath() + "\"");
+                }
+            }
         }
+        validateDirectory("volt root", voltDbRoot);
+
         return voltDbRoot;
+    }
+
+    public static File getSnapshot(PathsType.Snapshots paths, File voltDbRoot) {
+        File snapshotPath;
+        snapshotPath = new File(paths.getPath());
+        if (!snapshotPath.isAbsolute())
+        {
+            snapshotPath = new VoltFile(voltDbRoot, paths.getPath());
+        }
+
+        if (!snapshotPath.exists()) {
+            hostLog.info("Creating snapshot path directory: " +
+                         snapshotPath.getAbsolutePath());
+            if (!snapshotPath.mkdirs()) {
+                hostLog.fatal("Failed to create snapshot path directory \"" +
+                              snapshotPath + "\"");
+            }
+        }
+        validateDirectory("snapshot path", snapshotPath);
+
+        return snapshotPath;
+
+    }
+
+    public static File getCommandLog(PathsType.Commandlog paths, File voltDbRoot) {
+        if (!VoltDB.instance().getConfig().m_isEnterprise) {
+            // dumb defaults if you ask for logging in community version
+            File commandlogPath =  new VoltFile(voltDbRoot, "command_log");
+            return commandlogPath;
+        }
+        File commandlogPath;
+        commandlogPath = new File(paths.getPath());
+        if (!commandlogPath.isAbsolute())
+        {
+            commandlogPath = new VoltFile(voltDbRoot, paths.getPath());
+        }
+
+        if (!commandlogPath.exists()) {
+            hostLog.info("Creating command log directory: " +
+                         commandlogPath.getAbsolutePath());
+            if (!commandlogPath.mkdirs()) {
+                hostLog.fatal("Failed to create command log path directory \"" +
+                              commandlogPath + "\"");
+            }
+        }
+        validateDirectory("command log", commandlogPath);
+
+        return commandlogPath;
+
+    }
+
+    public static File getCommandLogSnapshot(PathsType.Commandlogsnapshot paths, File voltDbRoot) {
+        if (!VoltDB.instance().getConfig().m_isEnterprise) {
+            // dumb defaults if you ask for logging in community version
+            File commandlogSnapshotPath = new VoltFile(voltDbRoot, "command_log_snapshot");
+            return commandlogSnapshotPath;
+        }
+
+        File commandlogSnapshotPath;
+        commandlogSnapshotPath = new File(paths.getPath());
+        if (!commandlogSnapshotPath.isAbsolute())
+        {
+            commandlogSnapshotPath = new VoltFile(voltDbRoot, paths.getPath());
+        }
+
+        if (!commandlogSnapshotPath.exists()) {
+            hostLog.info("Creating command log snapshot directory: " +
+                         commandlogSnapshotPath.getAbsolutePath());
+            if (!commandlogSnapshotPath.mkdirs()) {
+                hostLog.fatal("Failed to create command log snapshot path directory \"" +
+                              commandlogSnapshotPath + "\"");
+            }
+        }
+        validateDirectory("command log snapshot", commandlogSnapshotPath);
+
+        return commandlogSnapshotPath;
+
+    }
+
+    public static File getExportOverflow(PathsType.Exportoverflow paths, File voltDbRoot) {
+        File exportOverflowPath;
+        exportOverflowPath = new File(paths.getPath());
+        if (!exportOverflowPath.isAbsolute())
+        {
+            exportOverflowPath = new VoltFile(voltDbRoot, paths.getPath());
+        }
+
+        if (!exportOverflowPath.exists()) {
+            hostLog.info("Creating export overflow directory: " +
+                         exportOverflowPath.getAbsolutePath());
+            if (!exportOverflowPath.mkdirs()) {
+                hostLog.fatal("Failed to create export overflow path directory \"" +
+                              exportOverflowPath + "\"");
+            }
+        }
+        validateDirectory("export overflow", exportOverflowPath);
+        return exportOverflowPath;
+
     }
 
     /**
@@ -1118,8 +1323,10 @@ public abstract class CatalogUtil {
             return;
         }
 
-        // TODO: The database name is not available in deployment.xml (it is defined in project.xml). However, it must
-        // always be named "database", so I've temporarily hardcoded it here until a more robust solution is available.
+        // The database name is not available in deployment.xml (it is defined
+        // in project.xml). However, it must always be named "database", so
+        // I've temporarily hardcoded it here until a more robust solution is
+        // available.
         Database db = catalog.getClusters().get("cluster").getDatabases().get("database");
 
         SecureRandom sr = new SecureRandom();
@@ -1138,39 +1345,37 @@ public abstract class CatalogUtil {
             catUser.setShadowpassword(hashedPW);
 
             // process the @groups and @roles comma separated list
-            for (final String role : mergeUserRoles(user)) {
-                final GroupRef groupRef = catUser.getGroups().add(role);
+            for (final String role : extractUserRoles(user)) {
                 final Group catalogGroup = db.getGroups().get(role);
+                // if the role doesn't exist, ignore it.
                 if (catalogGroup != null) {
+                    final GroupRef groupRef = catUser.getGroups().add(role);
                     groupRef.setGroup(catalogGroup);
+                }
+                else {
+                    hostLog.warn("User \"" + user.getName() +
+                            "\" is assigned to non-existent role \"" + role + "\" " +
+                            "and may not have the expected database permissions.");
                 }
             }
         }
     }
 
     /**
-     * Takes the list of roles specified in the groups, and roles user
-     * attributes and merges the into one set that contains no duplicates
+     * Takes the list of roles specified in the roles user
+     * attributes and returns a set from the comma-separated list
      * @param user an instance of {@link UsersType.User}
      * @return a {@link Set} of role name
      */
-    public static Set<String> mergeUserRoles(final UsersType.User user) {
+    private static Set<String> extractUserRoles(final UsersType.User user) {
         Set<String> roles = new TreeSet<String>();
         if (user == null) return roles;
-
-        if (user.getGroups() != null && !user.getGroups().trim().isEmpty()) {
-            String [] grouplist = user.getGroups().trim().split(",");
-            for (String group: grouplist) {
-                if( group == null || group.trim().isEmpty()) continue;
-                roles.add(group.trim());
-            }
-        }
 
         if (user.getRoles() != null && !user.getRoles().trim().isEmpty()) {
             String [] rolelist = user.getRoles().trim().split(",");
             for (String role: rolelist) {
                 if( role == null || role.trim().isEmpty()) continue;
-                roles.add(role.trim());
+                roles.add(role.trim().toLowerCase());
             }
         }
 
@@ -1178,23 +1383,11 @@ public abstract class CatalogUtil {
     }
 
     private static void setHTTPDInfo(Catalog catalog, HttpdType httpd) {
-        // defaults
-        int httpdPort = -1;
-        boolean jsonEnabled = false;
-
         Cluster cluster = catalog.getClusters().get("cluster");
 
-        // if the httpd info is available, use it
-        if (httpd != null && httpd.isEnabled()) {
-           httpdPort = httpd.getPort();
-           HttpdType.Jsonapi jsonapi = httpd.getJsonapi();
-           if (jsonapi != null)
-               jsonEnabled = jsonapi.isEnabled();
-        }
-
         // set the catalog info
-        cluster.setHttpdportno(httpdPort);
-        cluster.setJsonapi(jsonEnabled);
+        cluster.setHttpdportno(httpd.getPort());
+        cluster.setJsonapi(httpd.getJsonapi().isEnabled());
     }
 
     /** Read a hashed password from password.
@@ -1236,12 +1429,15 @@ public abstract class CatalogUtil {
                 int catalogVersion,
                 long txnId,
                 long uniqueId,
-                byte[] catalogHash,
-                byte[] deploymentHash,
-                byte[] catalogBytes)
+                byte[] catalogBytes,
+                byte[] deploymentBytes)
     {
         ByteBuffer versionAndBytes =
-            ByteBuffer.allocate(catalogBytes.length +
+            ByteBuffer.allocate(
+                    4 +  // catalog bytes length
+                    catalogBytes.length +
+                    4 +  // deployment bytes length
+                    deploymentBytes.length +
                     4 +  // catalog version
                     8 +  // txnID
                     8 +  // unique ID
@@ -1251,36 +1447,48 @@ public abstract class CatalogUtil {
         versionAndBytes.putInt(catalogVersion);
         versionAndBytes.putLong(txnId);
         versionAndBytes.putLong(uniqueId);
-        versionAndBytes.put(catalogHash);
-        versionAndBytes.put(deploymentHash);
+        versionAndBytes.put(makeCatalogOrDeploymentHash(catalogBytes));
+        versionAndBytes.put(makeCatalogOrDeploymentHash(deploymentBytes));
+        versionAndBytes.putInt(catalogBytes.length);
         versionAndBytes.put(catalogBytes);
+        versionAndBytes.putInt(deploymentBytes.length);
+        versionAndBytes.put(deploymentBytes);
         return versionAndBytes;
     }
 
-    public static void uploadCatalogToZK(ZooKeeper zk,
+    /**
+     *  Attempt to create the ZK node and write the catalog/deployment bytes
+     *  to ZK.  Used during the initial cluster deployment discovery and
+     *  distribution.
+     */
+    public static void writeCatalogToZK(ZooKeeper zk,
                 int catalogVersion,
                 long txnId,
                 long uniqueId,
-                byte[] catalogHash,
-                byte[] deploymentHash,
-                byte[] catalogBytes) throws KeeperException, InterruptedException
+                byte[] catalogBytes,
+                byte[] deploymentBytes)
+        throws KeeperException, InterruptedException
     {
         ByteBuffer versionAndBytes = makeCatalogVersionAndBytes(catalogVersion,
-                txnId, uniqueId, catalogHash, catalogBytes, deploymentHash);
+                txnId, uniqueId, catalogBytes, deploymentBytes);
         zk.create(VoltZK.catalogbytes,
                 versionAndBytes.array(), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
     }
 
-    public static void setCatalogToZK(ZooKeeper zk,
+    /**
+     * Update the catalog/deployment contained in ZK.  Someone somewhere must have
+     * called writeCatalogToZK earlier in order to create the ZK node.
+     */
+    public static void updateCatalogToZK(ZooKeeper zk,
             int catalogVersion,
             long txnId,
             long uniqueId,
-            byte[] catalogHash,
-            byte[] deploymentHash,
-            byte[] catalogBytes) throws KeeperException, InterruptedException
+            byte[] catalogBytes,
+            byte[] deploymentBytes)
+        throws KeeperException, InterruptedException
     {
         ByteBuffer versionAndBytes = makeCatalogVersionAndBytes(catalogVersion,
-                txnId, uniqueId, catalogHash, deploymentHash, catalogBytes);
+                txnId, uniqueId, catalogBytes, deploymentBytes);
         zk.setData(VoltZK.catalogbytes, versionAndBytes.array(), -1);
     }
 
@@ -1288,22 +1496,36 @@ public abstract class CatalogUtil {
         public final long txnId;
         public final long uniqueId;
         public final int version;
-        public final byte[] catalogHash;
-        public final byte[] deploymentHash;
-        public final byte[] bytes;
+        private final byte[] catalogHash;
+        private final byte[] deploymentHash;
+        public final byte[] catalogBytes;
+        public final byte[] deploymentBytes;
 
-        public CatalogAndIds(long txnId,
+        private CatalogAndIds(long txnId,
                 long uniqueId,
                 int catalogVersion,
                 byte[] catalogHash,
                 byte[] deploymentHash,
-                byte[] catalogBytes) {
+                byte[] catalogBytes,
+                byte[] deploymentBytes)
+        {
             this.txnId = txnId;
             this.uniqueId = uniqueId;
             this.version = catalogVersion;
             this.catalogHash = catalogHash;
             this.deploymentHash = deploymentHash;
-            this.bytes = catalogBytes;
+            this.catalogBytes = catalogBytes;
+            this.deploymentBytes = deploymentBytes;
+        }
+
+        public byte[] getCatalogHash()
+        {
+            return catalogHash.clone();
+        }
+
+        public byte[] getDeploymentHash()
+        {
+            return deploymentHash.clone();
         }
 
         @Override
@@ -1316,6 +1538,15 @@ public abstract class CatalogUtil {
         }
     }
 
+    /**
+     * Retrieve the catalog and deployment configuration from zookeeper.
+     * NOTE: In general, people who want the catalog and/or deployment should
+     * be getting it from the current CatalogContext, available from
+     * VoltDB.instance().  This is primarily for startup and for use by
+     * @UpdateApplicationCatalog.  If you think this is where you need to
+     * be getting catalog or deployment from, consider carefully if that's
+     * really what you want to do. --izzy 12/8/2014
+     */
     public static CatalogAndIds getCatalogFromZK(ZooKeeper zk) throws KeeperException, InterruptedException {
         ByteBuffer versionAndBytes =
                 ByteBuffer.wrap(zk.getData(VoltZK.catalogbytes, false, null));
@@ -1326,11 +1557,15 @@ public abstract class CatalogUtil {
         versionAndBytes.get(catalogHash);
         byte[] deploymentHash = new byte[20]; // sha-1 hash size
         versionAndBytes.get(deploymentHash);
-        byte[] catalogBytes = new byte[versionAndBytes.remaining()];
+        int catalogLength = versionAndBytes.getInt();
+        byte[] catalogBytes = new byte[catalogLength];
         versionAndBytes.get(catalogBytes);
+        int deploymentLength = versionAndBytes.getInt();
+        byte[] deploymentBytes = new byte[deploymentLength];
+        versionAndBytes.get(deploymentBytes);
         versionAndBytes = null;
         return new CatalogAndIds(catalogTxnId, catalogUniqueId, version, catalogHash,
-                deploymentHash, catalogBytes);
+                deploymentHash, catalogBytes, deploymentBytes);
     }
 
     /**
@@ -1353,16 +1588,20 @@ public abstract class CatalogUtil {
             bottomPlan.getTablesAndIndexes(tablesRead, indexes);
         }
 
-        String updated = null;
+        String updated = "";
         if ( ! stmt.getReadonly()) {
             updated = topPlan.getUpdatedTable();
             if (updated == null) {
                 updated = bottomPlan.getUpdatedTable();
             }
-            assert(updated != null);
+            assert(updated.length() > 0);
         }
 
         Set<String> readTableNames = tablesRead.keySet();
+        stmt.setTablesread(StringUtils.join(readTableNames, ","));
+        stmt.setTablesupdated(updated);
+
+        Set<String> tableDotIndexNames = new TreeSet<>();
 
         for (Table table : db.getTables()) {
             if (readTableNames.contains(table.getTypeName())) {
@@ -1370,101 +1609,16 @@ public abstract class CatalogUtil {
                 for (String indexName : indexes) {
                     Index index = table.getIndexes().get(indexName);
                     if (index != null) {
-                        updateIndexUsageAnnotation(index, stmt);
+                        tableDotIndexNames.add(table.getTypeName() + "." + index.getTypeName());
                     }
                 }
-                if (updated != null && updated.equals(table.getTypeName())) {
-                    // make useage only in either read or updated, not both
-                    updateTableUsageAnnotation(table, stmt, true);
-                    updated = null;
-                    continue;
-                }
-                updateTableUsageAnnotation(table, stmt, false);
-            }
-            else if (updated != null && updated.equals(table.getTypeName())) {
-                updateTableUsageAnnotation(table, stmt, true);
-                updated = null;
             }
         }
+
+        String indexString = StringUtils.join(tableDotIndexNames, ",");
+        stmt.setIndexesused(indexString);
 
         assert(tablesRead.size() == 0);
-        assert(updated == null);
-    }
-
-    private static void updateIndexUsageAnnotation(Index index, Statement stmt) {
-        Procedure proc = (Procedure) stmt.getParent();
-        // skip CRUD generated procs
-        if (proc.getDefaultproc()) {
-            return;
-        }
-
-        IndexAnnotation ia = (IndexAnnotation) index.getAnnotation();
-        if (ia == null) {
-            ia = new IndexAnnotation();
-            index.setAnnotation(ia);
-        }
-        ia.statementsThatUseThis.add(stmt);
-        ia.proceduresThatUseThis.add(proc);
-
-        ProcedureAnnotation pa = (ProcedureAnnotation) proc.getAnnotation();
-        if (pa == null) {
-            pa = new ProcedureAnnotation();
-            proc.setAnnotation(pa);
-        }
-        pa.indexesUsed.add(index);
-
-        StatementAnnotation sa = (StatementAnnotation) stmt.getAnnotation();
-        if (sa == null) {
-            sa = new StatementAnnotation();
-            stmt.setAnnotation(sa);
-        }
-        sa.indexesUsed.add(index);
-    }
-
-    private static void updateTableUsageAnnotation(Table table, Statement stmt, boolean read) {
-        Procedure proc = (Procedure) stmt.getParent();
-        // skip CRUD generated procs
-        if (proc.getDefaultproc()) {
-            return;
-        }
-
-        TableAnnotation ta = (TableAnnotation) table.getAnnotation();
-        if (ta == null) {
-            ta = new TableAnnotation();
-            table.setAnnotation(ta);
-        }
-        if (read) {
-            ta.statementsThatReadThis.add(stmt);
-            ta.proceduresThatReadThis.add(proc);
-        }
-        else {
-            ta.statementsThatUpdateThis.add(stmt);
-            ta.proceduresThatUpdateThis.add(proc);
-        }
-
-        ProcedureAnnotation pa = (ProcedureAnnotation) proc.getAnnotation();
-        if (pa == null) {
-            pa = new ProcedureAnnotation();
-            proc.setAnnotation(pa);
-        }
-        if (read) {
-            pa.tablesRead.add(table);
-        }
-        else {
-            pa.tablesUpdated.add(table);
-        }
-
-        StatementAnnotation sa = (StatementAnnotation) stmt.getAnnotation();
-        if (sa == null) {
-            sa = new StatementAnnotation();
-            stmt.setAnnotation(sa);
-        }
-        if (read) {
-            sa.tablesRead.add(table);
-        }
-        else {
-            sa.tablesUpdated.add(table);
-        }
     }
 
     /**
@@ -1518,7 +1672,6 @@ public abstract class CatalogUtil {
             try {
                 indexSize = AbstractExpression.fromJSONArrayString(jsonstring, null).size();
             } catch (JSONException e) {
-                // TODO Auto-generated catch block
                 e.printStackTrace();
             }
         }
@@ -1557,6 +1710,28 @@ public abstract class CatalogUtil {
             return null;
         }
         return emptyJarFile;
+    }
+
+    public static class DeploymentCheckException extends RuntimeException {
+
+        private static final long serialVersionUID = 6741313621335268608L;
+
+        public DeploymentCheckException() {
+            super();
+        }
+
+        public DeploymentCheckException(String message, Throwable cause) {
+            super(message, cause);
+        }
+
+        public DeploymentCheckException(String message) {
+            super(message);
+        }
+
+        public DeploymentCheckException(Throwable cause) {
+            super(cause);
+        }
+
     }
 
 }

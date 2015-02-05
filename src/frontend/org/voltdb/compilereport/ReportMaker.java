@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,8 @@
  */
 
 package org.voltdb.compilereport;
+
+import static org.apache.commons.lang3.StringEscapeUtils.escapeHtml4;
 
 import java.io.IOException;
 import java.net.URL;
@@ -103,15 +105,21 @@ public class ReportMaker {
         sb.append(StringUtils.join(columnNames, ", "));
         sb.append("</td>");
 
-        // uniqueness column
+        // attribute column
         sb.append("<td>");
         if (index.getAssumeunique()) {
-            tag(sb, "important", "AssumeUnique");
+            tag(sb, "success", "AssumeUnique");
         } else if (index.getUnique()) {
-            tag(sb, "important", "Unique");
+            tag(sb, "success", "Unique");
         } else {
             tag(sb, "info", "Nonunique");
         }
+        IndexAnnotation annotation = (IndexAnnotation) index.getAnnotation();
+        if(annotation == null) {
+            sb.append(" ");
+            tag(sb, "important", "Unused");
+        }
+
         sb.append("</td>");
 
         sb.append("</tr>\n");
@@ -120,7 +128,6 @@ public class ReportMaker {
         sb.append("<tr class='dropdown2'><td colspan='5' id='s-"+ table.getTypeName().toLowerCase() +
                 "-" + index.getTypeName().toLowerCase() + "--dropdown'>\n");
 
-        IndexAnnotation annotation = (IndexAnnotation) index.getAnnotation();
         if (annotation != null) {
             if (annotation.proceduresThatUseThis.size() > 0) {
                 sb.append("<p>Used by procedures: ");
@@ -130,6 +137,10 @@ public class ReportMaker {
                 }
                 sb.append(StringUtils.join(procs, ", "));
                 sb.append("</p>");
+            }
+            if (annotation.statementsThatUseThis.size() > 0) {
+                assert(annotation.statementsThatUseThis.size() == 1);
+                sb.append("<p>Used by the LIMIT PARTITION ROWS Statement</p>");
             }
         }
 
@@ -144,14 +155,14 @@ public class ReportMaker {
                   "<th>Index Name</th>" +
                   "<th>Type</th>" +
                   "<th>Columns</th>" +
-                  "<th>Uniqueness</th>" +
-                  "</tr></thead>\n    <tbody>\n");
+                  "<th>Attributes</th>" +
+                  "</tr>\n");
 
         for (Index index : table.getIndexes()) {
             sb.append(genrateIndexRow(table, index));
         }
 
-        sb.append("    </tbody>\n    </table>\n");
+        sb.append("    </thead>\n    </table>\n");
         return sb.toString();
     }
 
@@ -208,6 +219,18 @@ public class ReportMaker {
         // column 5: index count
         sb.append("<td>");
         sb.append(table.getIndexes().size());
+
+        // computing unused indexes
+        int unusedIndexes = 0;
+        for (Index index : table.getIndexes()) {
+            IndexAnnotation indexAnnotation = (IndexAnnotation) index.getAnnotation();
+               if(indexAnnotation == null) {
+                   unusedIndexes++;
+               }
+        }
+        if(unusedIndexes !=0 ) {
+            sb.append(" (" + unusedIndexes +" unused)");
+        }
         sb.append("</td>");
 
         // column 6: has pkey
@@ -249,7 +272,7 @@ public class ReportMaker {
                 sb.append("<p>MISSING DDL</p>\n");
             }
             else {
-                String ddl = annotation.ddl;
+                String ddl = escapeHtml4(annotation.ddl);
                 sb.append("<p><pre>" + ddl + "</pre></p>\n");
             }
 
@@ -276,6 +299,31 @@ public class ReportMaker {
             }
         }
 
+        // LIMIT PARTITION ROW statement may also use the index in this table, prepare the information for report
+        if (! table.getTuplelimitdeletestmt().isEmpty()) {
+            assert(table.getTuplelimitdeletestmt().size() == 1);
+            Statement stmt = table.getTuplelimitdeletestmt().iterator().next();
+
+            for (String tableDotIndexPair : stmt.getIndexesused().split(",")) {
+                if (tableDotIndexPair.length() == 0) continue;
+                String parts[] = tableDotIndexPair.split("\\.", 2);
+                assert(parts.length == 2);
+                if (parts.length != 2) continue;
+                String tableName = parts[0];
+                String indexName = parts[1];
+                if (! table.getTypeName().equals(tableName)) continue;
+
+                Index i = table.getIndexes().get(indexName);
+                assert(i != null);
+                IndexAnnotation ia = (IndexAnnotation) i.getAnnotation();
+                if (ia == null) {
+                    ia = new IndexAnnotation();
+                    i.setAnnotation(ia);
+                }
+                ia.statementsThatUseThis.add(stmt);
+            }
+        }
+
         if (table.getIndexes().size() > 0) {
             sb.append(generateIndexesTable(table));
         }
@@ -297,7 +345,11 @@ public class ReportMaker {
         return sb.toString();
     }
 
-    static String genrateStatementRow(Procedure procedure, Statement statement) {
+    static String genrateStatementRow(CatalogMap<Table> tables, Procedure procedure, Statement statement) {
+        // get the proc annotation which should exist or be created just before this is called
+        ProcedureAnnotation procAnnotation = (ProcedureAnnotation) procedure.getAnnotation();
+        assert(procAnnotation != null);
+
         StringBuilder sb = new StringBuilder();
         sb.append("        <tr class='primaryrow2'>");
 
@@ -310,7 +362,7 @@ public class ReportMaker {
 
         // sql column
         sb.append("<td><tt>");
-        sb.append(statement.getSqltext());
+        sb.append(escapeHtml4(statement.getSqltext()));
         sb.append("</td></tt>");
 
         // params column
@@ -356,34 +408,68 @@ public class ReportMaker {
                 "-" + statement.getTypeName().toLowerCase() + "--dropdown'>\n");
 
         sb.append("<div class='well well-small'><h4>Explain Plan:</h4>\n");
-        StatementAnnotation annotation = (StatementAnnotation) statement.getAnnotation();
-        if (annotation != null) {
-            String plan = annotation.explainPlan;
-            plan = plan.replace("\n", "<br/>");
-            plan = plan.replace(" ", "&nbsp;");
 
-            for (Table t : annotation.tablesRead) {
-                String name = t.getTypeName().toUpperCase();
-                String link = "\"<a href='#s-" + t.getTypeName() + "'>" + name + "</a>\"";
-                plan = plan.replace("\"" + name + "\"", link);
-            }
-            for (Table t : annotation.tablesUpdated) {
-                String name = t.getTypeName().toUpperCase();
-                String link = "\"<a href='#s-" + t.getTypeName() + "'>" + name + "</a>\"";
-                plan = plan.replace("\"" + name + "\"", link);
-            }
-            for (Index i : annotation.indexesUsed) {
-                Table t = (Table) i.getParent();
-                String name = i.getTypeName().toUpperCase();
-                String link = "\"<a href='#s-" + t.getTypeName() + "-" + i.getTypeName() +"'>" + name + "</a>\"";
-                plan = plan.replace("\"" + name + "\"", link);
-            }
+        String plan = escapeHtml4(Encoder.hexDecodeToString(statement.getExplainplan()));
+        plan = plan.replace("\n", "<br/>");
+        plan = plan.replace(" ", "&nbsp;");
 
-            sb.append("<tt>").append(plan).append("</tt>");
+        for (String tableName : statement.getTablesread().split(",")) {
+            if (tableName.length() == 0) continue;
+
+            Table t = tables.get(tableName);
+            assert(t != null);
+            TableAnnotation ta = (TableAnnotation) t.getAnnotation();
+            assert(ta != null);
+            ta.statementsThatReadThis.add(statement);
+            ta.proceduresThatReadThis.add(procedure);
+            procAnnotation.tablesRead.add(t);
+
+            String uname = tableName.toUpperCase();
+            String link = "\"<a href='#s-" + tableName + "'>" + uname + "</a>\"";
+            plan = plan.replace("&quot;" + uname + "&quot;", link);
         }
-        else {
-            sb.append("<i>No SQL explain plan found.</i>\n");
+        for (String tableName : statement.getTablesupdated().split(",")) {
+            if (tableName.length() == 0) continue;
+
+            Table t = tables.get(tableName);
+            assert(t != null);
+            TableAnnotation ta = (TableAnnotation) t.getAnnotation();
+            assert(ta != null);
+            ta.statementsThatUpdateThis.add(statement);
+            ta.proceduresThatUpdateThis.add(procedure);
+            procAnnotation.tablesUpdated.add(t);
+
+            String uname = tableName.toUpperCase();
+            String link = "\"<a href='#s-" + tableName + "'>" + uname + "</a>\"";
+            plan = plan.replace("&quot;" + uname + "&quot;", link);
         }
+        for (String tableDotIndexPair : statement.getIndexesused().split(",")) {
+            if (tableDotIndexPair.length() == 0) continue;
+            String parts[] = tableDotIndexPair.split("\\.", 2);
+            assert(parts.length == 2);
+            if (parts.length != 2) continue;
+            String tableName = parts[0];
+            String indexName = parts[1];
+
+            Table t = tables.get(tableName);
+            assert(t != null);
+            Index i = t.getIndexes().get(indexName);
+            assert(i != null);
+            IndexAnnotation ia = (IndexAnnotation) i.getAnnotation();
+            if (ia == null) {
+                ia = new IndexAnnotation();
+                i.setAnnotation(ia);
+            }
+            ia.proceduresThatUseThis.add(procedure);
+            procAnnotation.indexesUsed.add(i);
+
+            String uindexName = indexName.toUpperCase();
+            String link = "\"<a href='#s-" + tableName + "-" + indexName +"'>" + uindexName + "</a>\"";
+            plan = plan.replace("&quot;" + uindexName + "&quot;", link);
+        }
+
+        sb.append("<tt>").append(plan).append("</tt>");
+
         sb.append("</div>\n");
 
         sb.append("</td></tr>\n");
@@ -391,7 +477,7 @@ public class ReportMaker {
         return sb.toString();
     }
 
-    static String generateStatementsTable(Procedure procedure) {
+    static String generateStatementsTable(CatalogMap<Table> tables, Procedure procedure) {
         StringBuilder sb = new StringBuilder();
         sb.append("    <table class='table tableL2 table-condensed'>\n    <thead><tr>" +
                   "<th><span style='white-space: nowrap;'>Statement Name</span></th>" +
@@ -399,17 +485,17 @@ public class ReportMaker {
                   "<th>Params</th>" +
                   "<th>R/W</th>" +
                   "<th>Attributes</th>" +
-                  "</tr></thead>\n    <tbody>\n");
+                  "</tr>\n");
 
         for (Statement statement : procedure.getStatements()) {
-            sb.append(genrateStatementRow(procedure, statement));
+            sb.append(genrateStatementRow(tables, procedure, statement));
         }
 
-        sb.append("    </tbody>\n    </table>\n");
+        sb.append("    </thead>\n    </table>\n");
         return sb.toString();
     }
 
-    static String generateProcedureRow(Procedure procedure) {
+    static String generateProcedureRow(CatalogMap<Table> tables, Procedure procedure) {
         StringBuilder sb = new StringBuilder();
         sb.append("<tr class='primaryrow'>");
 
@@ -510,62 +596,71 @@ public class ReportMaker {
                                     pIndex, pColumn, pTable, pTable));
         }
 
-        // output what schema this interacts with
+        // get the annotation or ensure it's there
         ProcedureAnnotation annotation = (ProcedureAnnotation) procedure.getAnnotation();
-        if (annotation != null) {
-            // make sure tables appear in only one category
-            annotation.tablesRead.removeAll(annotation.tablesUpdated);
-
-            if (annotation.tablesRead.size() > 0) {
-                sb.append("<p>Read-only access to tables: ");
-                List<String> tables = new ArrayList<String>();
-                for (Table table : annotation.tablesRead) {
-                    tables.add("<a href='#s-" + table.getTypeName() + "'>" + table.getTypeName() + "</a>");
-                }
-                sb.append(StringUtils.join(tables, ", "));
-                sb.append("</p>");
-            }
-            if (annotation.tablesUpdated.size() > 0) {
-                sb.append("<p>Read/Write access to tables: ");
-                List<String> tables = new ArrayList<String>();
-                for (Table table : annotation.tablesUpdated) {
-                    tables.add("<a href='#s-" + table.getTypeName() + "'>" + table.getTypeName() + "</a>");
-                }
-                sb.append(StringUtils.join(tables, ", "));
-                sb.append("</p>");
-            }
-            if (annotation.indexesUsed.size() > 0) {
-                sb.append("<p>Uses indexes: ");
-                List<String> indexes = new ArrayList<String>();
-                for (Index index : annotation.indexesUsed) {
-                    Table table = (Table) index.getParent();
-                    indexes.add("<a href='#s-" + table.getTypeName() + "-" + index.getTypeName() + "'>" + index.getTypeName() + "</a>");
-                }
-                sb.append(StringUtils.join(indexes, ", "));
-                sb.append("</p>");
-            }
+        if (annotation == null) {
+            annotation = new ProcedureAnnotation();
+            procedure.setAnnotation(annotation);
         }
 
-        sb.append(generateStatementsTable(procedure));
+        // this needs to be run before the ProcedureAnnotation is used below
+        // because it modifies it
+        String statementsTable = generateStatementsTable(tables, procedure);
+
+        // output what schema this interacts with
+        // make sure tables appear in only one category
+        annotation.tablesRead.removeAll(annotation.tablesUpdated);
+
+        if (annotation.tablesRead.size() > 0) {
+            sb.append("<p>Read-only access to tables: ");
+            List<String> tableList = new ArrayList<String>();
+            for (Table table : annotation.tablesRead) {
+                tableList.add("<a href='#s-" + table.getTypeName() + "'>" + table.getTypeName() + "</a>");
+            }
+            sb.append(StringUtils.join(tableList, ", "));
+            sb.append("</p>");
+        }
+        if (annotation.tablesUpdated.size() > 0) {
+            sb.append("<p>Read/Write access to tables: ");
+            List<String> tableList = new ArrayList<String>();
+            for (Table table : annotation.tablesUpdated) {
+                tableList.add("<a href='#s-" + table.getTypeName() + "'>" + table.getTypeName() + "</a>");
+            }
+            sb.append(StringUtils.join(tableList, ", "));
+            sb.append("</p>");
+        }
+        if (annotation.indexesUsed.size() > 0) {
+            sb.append("<p>Uses indexes: ");
+            List<String> indexes = new ArrayList<String>();
+            for (Index index : annotation.indexesUsed) {
+                Table table = (Table) index.getParent();
+                indexes.add("<a href='#s-" + table.getTypeName() + "-" + index.getTypeName() + "'>" + index.getTypeName() + "</a>");
+            }
+            sb.append(StringUtils.join(indexes, ", "));
+            sb.append("</p>");
+        }
+
+        sb.append(statementsTable);
 
         sb.append("</td></tr>\n");
 
         return sb.toString();
     }
 
-    static String generateProceduresTable(CatalogMap<Procedure> procedures) {
+    static String generateProceduresTable(CatalogMap<Table> tables, CatalogMap<Procedure> procedures) {
         StringBuilder sb = new StringBuilder();
         for (Procedure procedure : procedures) {
             if (procedure.getDefaultproc()) {
                 continue;
             }
-            sb.append(generateProcedureRow(procedure));
+            sb.append(generateProcedureRow(tables, procedure));
         }
         return sb.toString();
     }
 
     static String generateSizeTable(DatabaseSizes sizes) {
         StringBuilder sb = new StringBuilder();
+        sb.append("<!--##SIZES##-->\n");
         int nrow = 0;
         for (TableSize tsize: sizes.tableSizes) {
             sb.append(generateSizeRow(tsize, ++nrow));
@@ -653,7 +748,7 @@ public class ReportMaker {
                 sb.append("<p>MISSING DDL</p>\n");
             }
             else {
-                String ddl = annotation.ddl;
+                String ddl = escapeHtml4(annotation.ddl);
                 sb.append("<p><pre>" + ddl + "</pre></p>\n");
             }
         }
@@ -840,7 +935,7 @@ public class ReportMaker {
                 } else {
                     nameLink = "<a href='#p-" + procName.toLowerCase() + "'>" + procName + "</a>";
                 }
-                sb.append("<tr><td>").append(nameLink).append("</td><td>").append(warning.getMessage()).append("</td></tr>\n");
+                sb.append("<tr><td>").append(nameLink).append("</td><td>").append(escapeHtml4(warning.getMessage())).append("</td></tr>\n");
             }
             sb.append("").append("</table>\n").append("</td></tr>\n");
         }
@@ -851,7 +946,7 @@ public class ReportMaker {
     /**
      * Generate the HTML catalog report from a newly compiled VoltDB catalog
      */
-    public static String report(Catalog catalog, ArrayList<Feedback> warnings) throws IOException {
+    public static String report(Catalog catalog, ArrayList<Feedback> warnings, String autoGenDDL) throws IOException {
         // asynchronously get platform properties
         new Thread() {
             @Override
@@ -872,11 +967,13 @@ public class ReportMaker {
         String statsData = getStatsHTML(db, warnings);
         contents = contents.replace("##STATS##", statsData);
 
+        // generateProceduresTable needs to happen before generateSchemaTable
+        // because some metadata used in the later is generated in the former
+        String procData = generateProceduresTable(db.getTables(), db.getProcedures());
+        contents = contents.replace("##PROCS##", procData);
+
         String schemaData = generateSchemaTable(db.getTables(), db.getConnectors());
         contents = contents.replace("##SCHEMA##", schemaData);
-
-        String procData = generateProceduresTable(db.getProcedures());
-        contents = contents.replace("##PROCS##", procData);
 
         DatabaseSizes sizes = CatalogSizing.getCatalogSizes(db);
 
@@ -890,6 +987,8 @@ public class ReportMaker {
         contents = contents.replace("##PLATFORM##", platformData);
 
         contents = contents.replace("##VERSION##", VoltDB.instance().getVersionString());
+
+        contents = contents.replace("##DDL##", escapeHtml4(autoGenDDL));
 
         DateFormat df = new SimpleDateFormat("d MMM yyyy HH:mm:ss z");
         contents = contents.replace("##TIMESTAMP##", df.format(m_timestamp));

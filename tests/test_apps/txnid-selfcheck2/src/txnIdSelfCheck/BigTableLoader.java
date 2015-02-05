@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -75,6 +75,7 @@ public class BigTableLoader extends Thread {
     }
 
     long getRowCount() throws NoConnectionsException, IOException, ProcCallException {
+        // XXX/PSR maybe we don't care (so much) about mp reads relative to mpRatio control?
         VoltTable t = client.callProcedure("@AdHoc", "select count(*) from " + tableName + ";").getResults()[0];
         return t.asScalarLong();
     }

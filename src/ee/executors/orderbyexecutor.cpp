@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This file contains original code and/or modifications of original code.
  * Any modifications made by VoltDB Inc. are licensed under the following
@@ -69,7 +69,7 @@ OrderByExecutor::p_init(AbstractPlanNode* abstract_node,
 
     OrderByPlanNode* node = dynamic_cast<OrderByPlanNode*>(abstract_node);
     assert(node);
-    assert(node->getInputTables().size() == 1);
+    assert(node->getInputTableCount() == 1);
 
     assert(node->getChildren()[0] != NULL);
 
@@ -79,14 +79,23 @@ OrderByExecutor::p_init(AbstractPlanNode* abstract_node,
     node->
         setOutputTable(TableFactory::
                        getCopiedTempTable(node->databaseId(),
-                                          node->getInputTables()[0]->name(),
-                                          node->getInputTables()[0],
+                                          node->getInputTable()->name(),
+                                          node->getInputTable(),
                                           limits));
 
     // pickup an inlined limit, if one exists
     limit_node =
         dynamic_cast<LimitPlanNode*>(node->
                                      getInlinePlanNode(PLAN_NODE_TYPE_LIMIT));
+
+#if defined(VOLT_LOG_LEVEL)
+#if VOLT_LOG_LEVEL<=VOLT_LEVEL_TRACE
+    const std::vector<AbstractExpression*>& sortExprs = node->getSortExpressions();
+    for (int i = 0; i < sortExprs.size(); ++i) {
+        VOLT_TRACE("Sort key[%d]:\n%s", i, sortExprs[i]->debug(true).c_str());
+    }
+#endif
+#endif
 
     return true;
 }
@@ -141,7 +150,7 @@ OrderByExecutor::p_execute(const NValueArray &params)
     assert(node);
     TempTable* output_table = dynamic_cast<TempTable*>(node->getOutputTable());
     assert(output_table);
-    Table* input_table = node->getInputTables()[0];
+    Table* input_table = node->getInputTable();
     assert(input_table);
 
     //
@@ -169,8 +178,17 @@ OrderByExecutor::p_execute(const NValueArray &params)
     }
     VOLT_TRACE("\n***** Input Table PreSort:\n '%s'",
                input_table->debug().c_str());
-    sort(xs.begin(), xs.end(), TupleComparer(node->getSortExpressions(),
-                                             node->getSortDirections()));
+
+
+    if (limit >= 0 && xs.begin() + limit + offset < xs.end()) {
+        // partial sort
+        partial_sort(xs.begin(), xs.begin() + limit + offset, xs.end(),
+                TupleComparer(node->getSortExpressions(), node->getSortDirections()));
+    } else {
+        // full sort
+        sort(xs.begin(), xs.end(),
+                TupleComparer(node->getSortExpressions(), node->getSortDirections()));
+    }
 
     int tuple_ctr = 0;
     int tuple_skipped = 0;
@@ -196,6 +214,8 @@ OrderByExecutor::p_execute(const NValueArray &params)
         }
     }
     VOLT_TRACE("Result of OrderBy:\n '%s'", output_table->debug().c_str());
+
+    cleanupInputTempTable(input_table);
 
     return true;
 }

@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -223,9 +223,6 @@ public:
         return m_bucket;
     }
 private:
-#ifdef MEMCHECK
-    Table* m_table;
-#endif
     char*   m_storage;
     uint32_t m_references;
     uint32_t m_tupleLength;
@@ -246,7 +243,6 @@ private:
 
     TBBucketPtr m_bucket;
     int m_bucketIndex;
-
 };
 
 /**

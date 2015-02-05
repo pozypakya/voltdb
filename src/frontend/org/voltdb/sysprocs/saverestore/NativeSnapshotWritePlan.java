@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -280,6 +280,10 @@ public class NativeSnapshotWritePlan extends SnapshotWritePlan
             }
         }
         completionTask = SnapshotUtil.writeSnapshotCatalog(file_path, file_nonce);
+        if (completionTask != null) {
+            SnapshotSiteProcessor.m_tasksOnSnapshotCompletion.offer(completionTask);
+        }
+        completionTask = SnapshotUtil.writeSnapshotCompletion(file_path, file_nonce, context.getHostId(), SNAP_LOG);
         if (completionTask != null) {
             SnapshotSiteProcessor.m_tasksOnSnapshotCompletion.offer(completionTask);
         }

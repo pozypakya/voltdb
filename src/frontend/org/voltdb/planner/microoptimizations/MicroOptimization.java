@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -32,6 +32,12 @@ public abstract class MicroOptimization {
     /// theoretically, just "assert(false)" IF the class also completely re-implements "apply".
     /// Implementing recursivelyApply to do real work on the plan graph is the more common paradigm.
     void apply(CompiledPlan plan, DeterminismMode detMode, AbstractParsedStmt parsedStmt)
+    {
+        // seq scan to index scan overrides this function
+        apply(plan, parsedStmt);
+    }
+
+    void apply(CompiledPlan plan, AbstractParsedStmt parsedStmt)
     {
         try {
             m_parsedStmt = parsedStmt;

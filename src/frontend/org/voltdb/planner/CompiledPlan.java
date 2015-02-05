@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -71,7 +71,10 @@ public class CompiledPlan {
     private VoltType[] m_parameterTypes = null;
 
     /** Parameter values, if the planner pulled constants out of the plan */
-    public ParameterSet extractedParamValues = ParameterSet.emptyParameterSet();
+    private ParameterSet m_extractedParamValues = ParameterSet.emptyParameterSet();
+
+    /** Compiler generated parameters for cacheble AdHoc queries */
+    private int m_generatedParameterCount = 0;
 
     /**
      * If true, divide the number of tuples changed
@@ -80,8 +83,8 @@ public class CompiledPlan {
      */
     public boolean replicatedTableDML = false;
 
-    /** Does the statment write? */
-    public boolean readOnly = false;
+    /** Does the statement write? */
+    private boolean m_readOnly = false;
 
     /**
      * Whether the plan's statement mandates a result with nondeterministic content;
@@ -272,4 +275,35 @@ public class CompiledPlan {
         return m_parameterTypes;
     }
 
+    public boolean extractParamValues(ParameterizationInfo paramzInfo) throws Exception {
+        VoltType[] paramTypes = parameterTypes();
+        if (paramTypes.length > MAX_PARAM_COUNT) {
+            return false;
+        }
+        if (paramzInfo.paramLiteralValues != null) {
+            m_generatedParameterCount = paramzInfo.paramLiteralValues.length;
+        }
+
+        m_extractedParamValues = paramzInfo.extractedParamValues(paramTypes);
+        return true;
+    }
+
+    public ParameterSet extractedParamValues() {
+        return m_extractedParamValues;
+    }
+
+    public int getQuestionMarkParameterCount() {
+        if (parameters == null) {
+            return 0;
+        }
+        return parameters.length - m_generatedParameterCount;
+    }
+
+    public boolean getReadOnly() {
+        return m_readOnly;
+    }
+
+    public void setReadOnly(boolean newValue) {
+        m_readOnly = newValue;
+    }
 }

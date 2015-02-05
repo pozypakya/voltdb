@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2014 VoltDB Inc.
+ * Copyright (C) 2008-2015 VoltDB Inc.
  *
  * This file contains original code and/or modifications of original code.
  * Any modifications made by VoltDB Inc. are licensed under the following
@@ -49,7 +49,6 @@
 #include "common/FatalException.hpp"
 #include "plannodes/aggregatenode.h"
 #include "plannodes/deletenode.h"
-#include "plannodes/distinctnode.h"
 #include "plannodes/indexscannode.h"
 #include "plannodes/indexcountnode.h"
 #include "plannodes/tablecountnode.h"
@@ -66,7 +65,6 @@
 #include "plannodes/seqscannode.h"
 #include "plannodes/unionnode.h"
 #include "plannodes/updatenode.h"
-#include "plannodes/upsertnode.h"
 
 #include <sstream>
 
@@ -141,16 +139,11 @@ voltdb::AbstractPlanNode* getEmptyPlanNode(voltdb::PlanNodeType type) {
             ret = new voltdb::DeletePlanNode();
             break;
         // ------------------------------------------------------------------
-        // Upsert
-        // ------------------------------------------------------------------
-        case (voltdb::PLAN_NODE_TYPE_UPSERT):
-            ret = new voltdb::UpsertPlanNode();
-            break;
-        // ------------------------------------------------------------------
         // Aggregate
         // ------------------------------------------------------------------
         case (voltdb::PLAN_NODE_TYPE_HASHAGGREGATE):
         case (voltdb::PLAN_NODE_TYPE_AGGREGATE):
+        case (voltdb::PLAN_NODE_TYPE_PARTIALAGGREGATE):
             ret = new voltdb::AggregatePlanNode(type);
             break;
         // ------------------------------------------------------------------
@@ -188,12 +181,6 @@ voltdb::AbstractPlanNode* getEmptyPlanNode(voltdb::PlanNodeType type) {
         // ------------------------------------------------------------------
         case (voltdb::PLAN_NODE_TYPE_LIMIT):
             ret = new voltdb::LimitPlanNode();
-            break;
-        // ------------------------------------------------------------------
-        // Distinct
-        // ------------------------------------------------------------------
-        case (voltdb::PLAN_NODE_TYPE_DISTINCT):
-            ret = new voltdb::DistinctPlanNode();
             break;
         // ------------------------------------------------------------------
         // Receive
