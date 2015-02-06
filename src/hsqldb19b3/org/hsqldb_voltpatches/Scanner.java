@@ -1857,7 +1857,6 @@ public class Scanner {
             return newDate(s);
         }
         // End of VoltDB extension
-
         long    zoneSeconds = 0;
         long    seconds;
         int     fraction = 0;

@@ -115,9 +115,9 @@ public final class Constraint implements SchemaObject {
                             UNIQUE         = 2,
                             CHECK          = 3,
                             PRIMARY_KEY    = 4,
-// A VoltDB extension to support table row limits
+                            // A VoltDB extension to support table row limits
                             LIMIT          = 6,
-// End of VoltDB extension
+                            // End of VoltDB extension
                             TEMP           = 5;
     ConstraintCore          core;
     private HsqlName        name;
@@ -601,9 +601,11 @@ public final class Constraint implements SchemaObject {
             case FOREIGN_KEY :
                 return core.refCols.length == 1 && core.refCols[0] == colIndex
                        && core.mainTable == core.refTable;
+
             // A VoltDB extension to support LIMIT PARTITION ROWS syntax
             case LIMIT :
                 return false; // LIMIT PARTITION ROWS depends on no columns
+
             // End of VoltDB extension
             default :
                 throw Error.runtimeError(ErrorCode.U_S0500, "Constraint");
@@ -636,8 +638,8 @@ public final class Constraint implements SchemaObject {
             // A VoltDB extension to support LIMIT PARTITION ROWS syntax
             case LIMIT :
                 return false; // LIMIT PARTITION ROWS depends on no columns
-            // End of VoltDB extension
 
+            // End of VoltDB extension
             default :
                 throw Error.runtimeError(ErrorCode.U_S0500, "Constraint");
         }
@@ -661,8 +663,8 @@ public final class Constraint implements SchemaObject {
             // A VoltDB extension to support LIMIT PARTITION ROWS syntax
             case LIMIT :
                 return false; // LIMIT PARTITION ROWS depends on no columns
-            // End of VoltDB extension
 
+            // End of VoltDB extension
             default :
                 throw Error.runtimeError(ErrorCode.U_S0500, "Constraint");
         }
@@ -1040,7 +1042,6 @@ public final class Constraint implements SchemaObject {
             isNotNull = true;
         }
     }
-
     /************************* Volt DB Extensions *************************/
 
     // !!!!!!!!

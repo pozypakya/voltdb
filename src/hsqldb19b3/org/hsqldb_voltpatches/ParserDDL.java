@@ -1429,7 +1429,6 @@ public class ParserDDL extends ParserRoutine {
                     break;
                 }
                 // A VoltDB extension to support LIMIT PARTITION ROWS
->>>>>>> master
                 case Constraint.LIMIT : {
                     table.addConstraint(c);
                     session.database.schemaManager.addSchemaObject(c);
@@ -2879,11 +2878,7 @@ public class ParserDDL extends ParserRoutine {
 
                 break;
             }
-<<<<<<< HEAD
-            // A VoltDB extension to support row limit constraints
-=======
             // A VoltDB extension to support LIMIT PARTITION ROWS
->>>>>>> master
             case Tokens.LIMIT : {
                 read();
 
@@ -3585,7 +3580,7 @@ public class ParserDDL extends ParserRoutine {
             cols = getColumnList(set, table);
         }
         /* disable 1 line ...
-        int[] cols = this.readColumnList(table, false);
+        int[]    cols = this.readColumnList(table, false);
         ... disabled 1 line */
         // End of VoltDB extension
         String   sql  = getLastPart();
@@ -5058,7 +5053,6 @@ public class ParserDDL extends ParserRoutine {
         session.checkAdmin();
         session.checkDDLWrite();
     }
-
     /************************* Volt DB Extensions *************************/
     /**
      * Responsible for handling Volt limit constraints section of CREATE TABLE ...
@@ -5218,7 +5212,6 @@ public class ParserDDL extends ParserRoutine {
 		return true;
 	}
 
-    // A VoltDB extension to support LIMIT PARTITION ROWS syntax
     private Statement compileAlterTableAddLimitConstraint(Table table, HsqlName name)
     {
         if (name == null) {
@@ -5237,9 +5230,7 @@ public class ParserDDL extends ParserRoutine {
         return new StatementSchema(sql, StatementTypes.ALTER_TABLE, args,
                                    null, table.getName());
     }
-    // End of VoltDB extension
 
-    // A VoltDB extension to support LIMIT PARTITION ROWS syntax
     private void processAlterTableAddLimitConstraint(Table table, HsqlName name) {
         if (name == null) {
             name = database.nameManager.newAutoName("LIMIT",
@@ -5255,9 +5246,7 @@ public class ParserDDL extends ParserRoutine {
         TableWorks tableWorks = new TableWorks(session, table);
         tableWorks.addLimitConstraint(c);
     }
-    // End of VoltDB extension
 
-    // A VoltDB extension to support LIMIT PARTITION ROWS syntax
     private Statement compileAlterTableDropLimit(Table t) {
 
         HsqlName readName  = null;
@@ -5292,8 +5281,6 @@ public class ParserDDL extends ParserRoutine {
         return new StatementSchema(sql, StatementTypes.DROP_CONSTRAINT, args,
                                    readName, writeName);
     }
-    // End of VoltDB extension
 
     /**********************************************************************/
-
 }
