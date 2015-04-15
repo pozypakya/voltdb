@@ -120,20 +120,15 @@ public class HSQLInterface {
      * through the returned instance of HSQLInterface
      */
     public static HSQLInterface loadHsqldb() {
-        Session sessionProxy = null;
-        String name = "hsqldbinstance-" + String.valueOf(instanceId) + "-" + String.valueOf(System.currentTimeMillis());
+        String name = "hsqldbinstance-" + instanceId + "-" + System.currentTimeMillis();
         instanceId++;
-
-        HsqlProperties props = new HsqlProperties();
-        try {
-            sessionProxy = DatabaseManager.newSession(DatabaseURL.S_MEM, name, "SA", "", props, 0);
-        } catch (HsqlException e) {
-            e.printStackTrace();
-        }
 
         // Specifically set the timezone to UTC to avoid the default usage local timezone in HSQL.
         // This ensures that all VoltDB data paths use the same timezone for representing time.
         TimeZone.setDefault(TimeZone.getTimeZone("GMT+0"));
+
+        HsqlProperties props = new HsqlProperties();
+        Session sessionProxy = DatabaseManager.newSession(DatabaseURL.S_MEM, name, "SA", "", props, 0);
 
         // make HSQL case insensitive
         sessionProxy.executeDirectStatement("SET IGNORECASE TRUE;");

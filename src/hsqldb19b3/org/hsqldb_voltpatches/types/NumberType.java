@@ -726,6 +726,7 @@ public final class NumberType extends Type {
             case Types.SQL_DOUBLE :
             case Types.SQL_NUMERIC :
             case Types.SQL_DECIMAL :
+            case Types.SQL_VARBINARY :
                 break;
 
             default :
@@ -737,9 +738,17 @@ public final class NumberType extends Type {
             case Types.TINYINT :
             case Types.SQL_SMALLINT :
             case Types.SQL_INTEGER :
+                if (a instanceof BinaryData) {
+                    a = convertBinaryToLong((BinaryData)a);
+                }
+
                 return convertToInt(a, this.typeCode);
 
             case Types.SQL_BIGINT :
+                if (a instanceof BinaryData) {
+                    a = convertBinaryToLong((BinaryData)a);
+                }
+
                 return convertToLong(a);
 
             case Types.SQL_REAL :
@@ -756,6 +765,24 @@ public final class NumberType extends Type {
             default :
                 throw Error.error(ErrorCode.X_42561);
         }
+    }
+
+    private static Long convertBinaryToLong(BinaryData a) {
+        // The goal is to reurn a Long or generally
+        // an instance of the target-type-appropriate boxed integral type.
+        // The instance must be initialized from the bytes of the BinaryData
+        // currently stored in a.
+        byte[] asBytes = a.getBytes();
+        if (asBytes.length > 8 || asBytes.length == 0) {
+            throw Error.error(ErrorCode.X_42561);
+        }
+        //TODO: find a better home class for hexEncode.
+        String asHex = org.hsqldb_voltpatches.Expression.hexEncode(asBytes);
+        // BigInteger.longValue is used because it supports the sign bit on
+        // a 64-bit binary value. Long.parseLong(..., 16) calls this out of range.
+        // For java 1.8 or later, we should be able to use Long.parseUnsignedLong(..., 16).
+        java.math.BigInteger asBigInt = new java.math.BigInteger(asHex, 16);
+        return asBigInt.longValue();
     }
 
     public Object convertToTypeJDBC(SessionInterface session, Object a,

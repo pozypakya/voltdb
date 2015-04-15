@@ -659,6 +659,9 @@ public class ExpressionLogical extends Expression {
                                            nodes[RIGHT])) {
 
                     // compatibility for scalars only
+                }
+                else if (convertBinaryIntegerLiteral(session, nodes[LEFT],
+                        nodes[RIGHT])) {
                 } else {
                     throw Error.error(ErrorCode.X_42562);
                 }
@@ -723,6 +726,34 @@ public class ExpressionLogical extends Expression {
                                                 b.dataType);
             b.dataType = a.dataType;
 
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * for compatibility, convert a binary literal to an integral
+     * value for comparison
+     */
+    private boolean convertBinaryIntegerLiteral(Session session, Expression a,
+                                           Expression b) {
+
+        if (a.dataType.isIntegralType()) {}
+        else if (b.dataType.isIntegralType()) {
+            Expression c = a;
+
+            a = b;
+            b = c;
+        } else {
+            return false;
+        }
+
+        if (b.opType == OpTypes.VALUE && b.dataType.isBinaryType()) {
+            // This code was modeled after convertDateTimeLiteral above.
+            b.valueData = a.dataType.castToType(session, b.valueData,
+                                                b.dataType);
+            b.dataType = a.dataType;
             return true;
         }
 

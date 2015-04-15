@@ -46,7 +46,6 @@ import org.hsqldb_voltpatches.store.BitMap;
 import org.hsqldb_voltpatches.store.ValuePool;
 import org.hsqldb_voltpatches.types.BinaryData;
 import org.hsqldb_voltpatches.types.BinaryType;
-import org.hsqldb_voltpatches.types.BitType;
 import org.hsqldb_voltpatches.types.CharacterType;
 import org.hsqldb_voltpatches.types.DTIType;
 import org.hsqldb_voltpatches.types.DateTimeType;
@@ -2260,8 +2259,10 @@ public class Scanner {
             scanWhitespace();
         }
 
-        if (!hasNonSpaceSeparator && token.tokenType == Tokens.X_VALUE
-                && token.tokenValue instanceof Number) {
+        if (!hasNonSpaceSeparator && token.tokenType == Tokens.X_VALUE) {
+            if ( ! (token.tokenValue instanceof Number)) {
+                voltForceHexLiteralToBigint();
+            }
             number = (Number) token.tokenValue;
             type   = token.dataType;
 

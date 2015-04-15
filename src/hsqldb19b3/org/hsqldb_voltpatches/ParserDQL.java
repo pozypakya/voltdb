@@ -95,6 +95,7 @@ public class ParserDQL extends ParserBase {
      *
      * @param sql a new SQL character sequence to replace the current one
      */
+    @Override
     void reset(String sql) {
 
         super.reset(sql);
@@ -222,6 +223,9 @@ public class ParserDQL extends ParserBase {
                 switch (token.tokenType) {
 
                     case Tokens.X_VALUE :
+                        if ( ! (token.tokenValue instanceof Number)) {
+                            getScanner().voltForceHexLiteralToBigint();
+                        }
                         if (token.dataType.typeCode != Types.SQL_INTEGER
                                 && token.dataType.typeCode
                                    != Types.SQL_BIGINT) {
