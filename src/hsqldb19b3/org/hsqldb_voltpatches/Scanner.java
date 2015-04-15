@@ -1041,7 +1041,7 @@ public class Scanner {
                     try {
                         token.tokenValue = ValuePool.getInt(
                             Integer.parseInt(token.tokenString));
-
+                        voltForceIntToHexLiteral();
                         return;
                     } catch (Exception e1) {}
                 }
@@ -1051,7 +1051,7 @@ public class Scanner {
                         token.dataType = Type.SQL_BIGINT;
                         token.tokenValue = ValuePool.getLong(
                             Long.parseLong(token.tokenString));
-
+                        voltForceBigIntToHexLiteral();
                         return;
                     } catch (Exception e2) {}
                 }
@@ -1564,7 +1564,7 @@ public class Scanner {
                     token.tokenType = Tokens.X_VALUE;
 
                     // A VoltDB extension to make x'abcd' literals look like integers
-                    voltForceHexLiteralToBigint();
+                    ////voltForceHexLiteralToBigint();
                     // End of VoltDB extension
                     return;
                 }
@@ -2463,7 +2463,7 @@ public class Scanner {
      * Assuming we just parsed a x'....' literal, update the current token
      * to be a BIGINT instead of VARBINARY
      */
-    private void voltForceHexLiteralToBigint() {
+    /*private*/ void voltForceHexLiteralToBigint() {
         token.dataType = Type.SQL_BIGINT;
         byte[] data = ((BinaryData)(token.tokenValue)).getBytes();
         if (data.length == 0 || data.length > 8) {
@@ -2486,5 +2486,33 @@ public class Scanner {
             token.tokenValue = ValuePool.getLong(bi.longValue());
         }
     }
-    // End of VoltDB extension
+
+    void voltForceIntToHexLiteral() {
+        Integer original = (Integer) token.tokenValue;
+        byteOutputStream.reset();
+        byteOutputStream.writeInt(original);
+        token.tokenValue = new BinaryData(byteOutputStream.toByteArray(),
+                false);
+        byteOutputStream.reset();
+        token.dataType = BinaryType.getBinaryType(
+                Types.SQL_VARBINARY,
+                ((BinaryData) token.tokenValue).length(null));
+        token.tokenType = Tokens.X_VALUE;
+        return;
+    }
+
+    void voltForceBigIntToHexLiteral() {
+        Long original = (Long) token.tokenValue;
+        byteOutputStream.reset();
+        byteOutputStream.writeLong(original);
+        token.tokenValue = new BinaryData(byteOutputStream.toByteArray(),
+                false);
+        byteOutputStream.reset();
+        token.dataType = BinaryType.getBinaryType(
+                Types.SQL_VARBINARY,
+                ((BinaryData) token.tokenValue).length(null));
+        token.tokenType = Tokens.X_VALUE;
+        return;
+    }
+// End of VoltDB extension
 }
