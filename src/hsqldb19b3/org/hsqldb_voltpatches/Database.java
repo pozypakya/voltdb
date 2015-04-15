@@ -250,7 +250,7 @@ public class Database {
                 "false").equals("true");
         logger                   = new Logger();
         compiledStatementManager = new StatementManager(this);
-        lobManager               = new LobManager(this);
+        ////lobManager               = new LobManager(this);
     }
 
     /**
@@ -311,7 +311,7 @@ public class Database {
                 schemaManager.createPublicSchema();
             }
 
-            lobManager.createSchema();
+            ////lobManager.createSchema();
 
             if (DatabaseURL.isFileBasedDatabaseType(databaseType)) {
                 logger.openLog(this);
@@ -360,11 +360,11 @@ public class Database {
                         session, "SET DATABASE DEFAULT TABLE TYPE CACHED");
                 }
 
-                lobManager.initialiseLobSpace();
+                ////lobManager.initialiseLobSpace();
                 logger.synchLogForce();
             }
 
-            lobManager.open();
+            ////lobManager.open();
             dbInfo.setWithContent(true);
         } catch (Throwable e) {
             logger.closeLog(Database.CLOSEMODE_IMMEDIATELY);
@@ -612,7 +612,7 @@ public class Database {
          * should be investigated for the CLOSEMODE_COMPACT mode
          */
         logger.closeLog(closemode);
-        lobManager.close();
+        ////lobManager.close();
 
         try {
             if (closemode == CLOSEMODE_COMPACT) {

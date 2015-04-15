@@ -1667,7 +1667,7 @@ public class Session implements SessionInterface {
     // lobs
     public BlobDataID createBlob(long length) {
 
-        long lobID = database.lobManager.createBlob(length);
+        long lobID = 0;//database.lobManager.createBlob(length);
 
         if (lobID == 0) {
             throw Error.error(ErrorCode.X_0F502);
@@ -1680,7 +1680,7 @@ public class Session implements SessionInterface {
 
     public ClobDataID createClob(long length) {
 
-        long lobID = database.lobManager.createClob(length);
+        long lobID = 0;//database.lobManager.createClob(length);
 
         if (lobID == 0) {
             throw Error.error(ErrorCode.X_0F502);
@@ -1702,7 +1702,7 @@ public class Session implements SessionInterface {
     Result performLOBOperation(ResultLob cmd) {
 
         long id        = cmd.getLobID();
-        int  operation = cmd.getSubType();
+        int  operation = ResultLob.LobResultTypes.REQUEST_CREATE_BYTES;//cmd.getSubType();
 
         switch (operation) {
 
