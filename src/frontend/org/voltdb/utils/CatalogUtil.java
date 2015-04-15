@@ -34,10 +34,14 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Properties;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBElement;
@@ -50,6 +54,7 @@ import javax.xml.validation.SchemaFactory;
 
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop_voltpatches.util.PureJavaCrc32;
 import org.apache.zookeeper_voltpatches.CreateMode;
 import org.apache.zookeeper_voltpatches.KeeperException;
 import org.apache.zookeeper_voltpatches.ZooDefs.Ids;
@@ -70,7 +75,9 @@ import org.voltdb.catalog.CatalogType;
 import org.voltdb.catalog.Cluster;
 import org.voltdb.catalog.Column;
 import org.voltdb.catalog.ColumnRef;
+import org.voltdb.catalog.Connector;
 import org.voltdb.catalog.ConnectorProperty;
+import org.voltdb.catalog.ConnectorTableInfo;
 import org.voltdb.catalog.Constraint;
 import org.voltdb.catalog.Database;
 import org.voltdb.catalog.Deployment;
@@ -89,7 +96,9 @@ import org.voltdb.compiler.deploymentfile.AdminModeType;
 import org.voltdb.compiler.deploymentfile.ClusterType;
 import org.voltdb.compiler.deploymentfile.CommandLogType;
 import org.voltdb.compiler.deploymentfile.CommandLogType.Frequency;
+import org.voltdb.compiler.deploymentfile.ConnectionType;
 import org.voltdb.compiler.deploymentfile.DeploymentType;
+import org.voltdb.compiler.deploymentfile.DrType;
 import org.voltdb.compiler.deploymentfile.ExportConfigurationType;
 import org.voltdb.compiler.deploymentfile.ExportType;
 import org.voltdb.compiler.deploymentfile.HeartbeatType;
@@ -97,9 +106,9 @@ import org.voltdb.compiler.deploymentfile.HttpdType;
 import org.voltdb.compiler.deploymentfile.PartitionDetectionType;
 import org.voltdb.compiler.deploymentfile.PathsType;
 import org.voltdb.compiler.deploymentfile.PropertyType;
-import org.voltdb.compiler.deploymentfile.ReplicationType;
 import org.voltdb.compiler.deploymentfile.SchemaType;
 import org.voltdb.compiler.deploymentfile.SecurityType;
+import org.voltdb.compiler.deploymentfile.ServerExportEnum;
 import org.voltdb.compiler.deploymentfile.SnapshotType;
 import org.voltdb.compiler.deploymentfile.SystemSettingsType;
 import org.voltdb.compiler.deploymentfile.UsersType;
@@ -112,6 +121,10 @@ import org.voltdb.types.ConstraintType;
 import org.xml.sax.SAXException;
 
 import com.google_voltpatches.common.base.Charsets;
+import com.google_voltpatches.common.collect.ImmutableSortedSet;
+import com.google_voltpatches.common.collect.Maps;
+import com.google_voltpatches.common.collect.Sets;
+import org.voltdb.client.ClientAuthHashScheme;
 
 /**
  *
@@ -122,6 +135,9 @@ public abstract class CatalogUtil {
 
     public static final String CATALOG_FILENAME = "catalog.txt";
     public static final String CATALOG_BUILDINFO_FILENAME = "buildinfo.txt";
+
+    public static final String SIGNATURE_TABLE_NAME_SEPARATOR = "|";
+    public static final String SIGNATURE_DELIMITER = ",";
 
     private static JAXBContext m_jc;
     private static Schema m_schema;
@@ -355,6 +371,26 @@ public abstract class CatalogUtil {
         return (columns);
     }
 
+    public static NavigableSet<Table> getExportTables(Database db) {
+        ImmutableSortedSet.Builder<Table> exportTables = ImmutableSortedSet.naturalOrder();
+        for (Connector connector : db.getConnectors()) {
+            for (ConnectorTableInfo tinfo : connector.getTableinfo()) {
+                exportTables.add(tinfo.getTable());
+            }
+        }
+        return exportTables.build();
+    }
+
+    public static NavigableSet<String> getExportTableNames(Database db) {
+        ImmutableSortedSet.Builder<String> exportTables = ImmutableSortedSet.naturalOrder();
+        for (Connector connector : db.getConnectors()) {
+            for (ConnectorTableInfo tinfo : connector.getTableinfo()) {
+                exportTables.add(tinfo.getTable().getTypeName());
+            }
+        }
+        return exportTables.build();
+    }
+
     /**
      * Return true if a table is a streamed / export table
      * This function is duplicated in CatalogUtil.h
@@ -365,24 +401,35 @@ public abstract class CatalogUtil {
     public static boolean isTableExportOnly(org.voltdb.catalog.Database database,
                                             org.voltdb.catalog.Table table)
     {
-        // no export, no export only tables
-        if (database.getConnectors().size() == 0) {
-            return false;
-        }
-
-        // there is one well-known-named connector
-        org.voltdb.catalog.Connector connector = database.getConnectors().get("0");
-
-        // iterate the connector tableinfo list looking for tableIndex
-        // tableInfo has a reference to a table - can compare the reference
-        // to the desired table by looking at the relative index. ick.
-        for (org.voltdb.catalog.ConnectorTableInfo tableInfo : connector.getTableinfo()) {
-            if (tableInfo.getTable().getRelativeIndex() == table.getRelativeIndex()) {
-                return tableInfo.getAppendonly();
+        for (Connector connector : database.getConnectors()) {
+            // iterate the connector tableinfo list looking for tableIndex
+            // tableInfo has a reference to a table - can compare the reference
+            // to the desired table by looking at the relative index. ick.
+            for (ConnectorTableInfo tableInfo : connector.getTableinfo()) {
+                if (tableInfo.getTable().getRelativeIndex() == table.getRelativeIndex()) {
+                    return true;
+                }
             }
         }
         return false;
     }
+
+    public static String getExportTargetIfExportTableOrNullOtherwise(org.voltdb.catalog.Database database,
+                                                                    org.voltdb.catalog.Table table)
+    {
+        for (Connector connector : database.getConnectors()) {
+            // iterate the connector tableinfo list looking for tableIndex
+            // tableInfo has a reference to a table - can compare the reference
+            // to the desired table by looking at the relative index. ick.
+            for (ConnectorTableInfo tableInfo : connector.getTableinfo()) {
+                if (tableInfo.getTable().getRelativeIndex() == table.getRelativeIndex()) {
+                    return connector.getTypeName();
+                }
+            }
+        }
+        return null;
+    }
+
 
     /**
      * Return true if a table is the source table for a materialized view.
@@ -523,6 +570,8 @@ public abstract class CatalogUtil {
             }
 
             setCommandLogInfo( catalog, deployment.getCommandlog());
+
+            setDrInfo(catalog, deployment.getDr());
         }
         catch (Exception e) {
             // Anything that goes wrong anywhere in trying to handle the deployment file
@@ -625,6 +674,32 @@ public abstract class CatalogUtil {
             JAXBElement<DeploymentType> result =
                 (JAXBElement<DeploymentType>) unmarshaller.unmarshal(deployIS);
             DeploymentType deployment = result.getValue();
+            // move any deprecated standalone export elements to the default target
+            ExportType export = deployment.getExport();
+            if (export != null && export.getTarget() != null) {
+                if (export.getConfiguration().size() > 1) {
+                    hostLog.error("Invalid schema, cannot use deprecated export syntax with multiple configuration tags.");
+                    return null;
+                }
+                //OLD syntax use target as type.
+                if (export.getConfiguration().isEmpty()) {
+                    // this code is for RestRoundtripTest
+                    export.getConfiguration().add(new ExportConfigurationType());
+                }
+                ExportConfigurationType exportConfig = export.getConfiguration().get(0);
+                if (export.isEnabled() != null) {
+                    exportConfig.setEnabled(export.isEnabled());
+                }
+                if (export.getTarget() != null) {
+                    exportConfig.setType(export.getTarget());
+                }
+                if (export.getExportconnectorclass() != null) {
+                    exportConfig.setExportconnectorclass(export.getExportconnectorclass());
+                }
+                //Set target to default name.
+                exportConfig.setStream(Constants.DEFAULT_EXPORT_CONNECTOR_NAME);
+            }
+
             populateDefaultDeployment(deployment);
             return deployment;
         } catch (JAXBException e) {
@@ -642,126 +717,125 @@ public abstract class CatalogUtil {
     }
 
     public static void populateDefaultDeployment(DeploymentType deployment) {
-            //partition detection
-            PartitionDetectionType pd = deployment.getPartitionDetection();
-            if (pd == null) {
-                pd = new PartitionDetectionType();
-                deployment.setPartitionDetection(pd);
-            }
-            if (pd.getSnapshot() == null) {
-                PartitionDetectionType.Snapshot sshot = new PartitionDetectionType.Snapshot();
-                pd.setSnapshot(sshot);
-            }
-            //admin mode
-            if (deployment.getAdminMode() == null) {
-                AdminModeType amode = new AdminModeType();
-                deployment.setAdminMode(amode);
-            }
-            //heartbeat
-            if (deployment.getHeartbeat() == null) {
-                HeartbeatType hb = new HeartbeatType();
-                deployment.setHeartbeat(hb);
-            }
-            //httpd
-            HttpdType httpd = deployment.getHttpd();
-            if (httpd == null) {
-                httpd = new HttpdType();
-                //-1 means find next port from 8080
-                httpd.setPort(-1);
-                deployment.setHttpd(httpd);
-            }
-            //jsonApi
-            HttpdType.Jsonapi jsonApi = httpd.getJsonapi();
-            if (jsonApi == null) {
-                jsonApi = new HttpdType.Jsonapi();
-                httpd.setJsonapi(jsonApi);
-            }
-            //replication
-            if (deployment.getReplication() == null) {
-                ReplicationType repl = new ReplicationType();
-                deployment.setReplication(repl);
-            }
-            //snapshot
-            if (deployment.getSnapshot() == null) {
-                SnapshotType snap = new SnapshotType();
-                snap.setEnabled(false);
-                deployment.setSnapshot(snap);
-            }
-            //Security
-            if (deployment.getSecurity() == null) {
-                SecurityType sec = new SecurityType();
-                deployment.setSecurity(sec);
-            }
-            //Paths
-            if (deployment.getPaths() == null) {
-                PathsType paths = new PathsType();
-                deployment.setPaths(paths);
-            }
-            //create paths entries
-            PathsType paths = deployment.getPaths();
-            if (paths.getVoltdbroot() == null) {
-                PathsType.Voltdbroot root = new PathsType.Voltdbroot();
-                paths.setVoltdbroot(root);
-            }
-            //snapshot
-            if (paths.getSnapshots() == null) {
-                PathsType.Snapshots snap = new PathsType.Snapshots();
-                paths.setSnapshots(snap);
-            }
-            if (paths.getCommandlog() == null) {
-                //cl
-                PathsType.Commandlog cl = new PathsType.Commandlog();
-                paths.setCommandlog(cl);
-            }
-            if (paths.getCommandlogsnapshot() == null) {
-                //cl snap
-                PathsType.Commandlogsnapshot clsnap = new PathsType.Commandlogsnapshot();
-                paths.setCommandlogsnapshot(clsnap);
-            }
-            if (paths.getExportoverflow() == null) {
-                //export overflow
-                PathsType.Exportoverflow exp = new PathsType.Exportoverflow();
-                paths.setExportoverflow(exp);
-            }
+        //partition detection
+        PartitionDetectionType pd = deployment.getPartitionDetection();
+        if (pd == null) {
+            pd = new PartitionDetectionType();
+            deployment.setPartitionDetection(pd);
+        }
+        if (pd.getSnapshot() == null) {
+            PartitionDetectionType.Snapshot sshot = new PartitionDetectionType.Snapshot();
+            pd.setSnapshot(sshot);
+        }
+        //admin mode
+        if (deployment.getAdminMode() == null) {
+            AdminModeType amode = new AdminModeType();
+            deployment.setAdminMode(amode);
+        }
+        //heartbeat
+        if (deployment.getHeartbeat() == null) {
+            HeartbeatType hb = new HeartbeatType();
+            deployment.setHeartbeat(hb);
+        }
+        //httpd
+        HttpdType httpd = deployment.getHttpd();
+        if (httpd == null) {
+            httpd = new HttpdType();
+            // Find next available port starting with the default
+            httpd.setPort(Constants.HTTP_PORT_AUTO);
+            deployment.setHttpd(httpd);
+        }
+        //jsonApi
+        HttpdType.Jsonapi jsonApi = httpd.getJsonapi();
+        if (jsonApi == null) {
+            jsonApi = new HttpdType.Jsonapi();
+            httpd.setJsonapi(jsonApi);
+        }
+        //snapshot
+        if (deployment.getSnapshot() == null) {
+            SnapshotType snap = new SnapshotType();
+            snap.setEnabled(false);
+            deployment.setSnapshot(snap);
+        }
+        //Security
+        if (deployment.getSecurity() == null) {
+            SecurityType sec = new SecurityType();
+            deployment.setSecurity(sec);
+        }
+        //Paths
+        if (deployment.getPaths() == null) {
+            PathsType paths = new PathsType();
+            deployment.setPaths(paths);
+        }
+        //create paths entries
+        PathsType paths = deployment.getPaths();
+        if (paths.getVoltdbroot() == null) {
+            PathsType.Voltdbroot root = new PathsType.Voltdbroot();
+            paths.setVoltdbroot(root);
+        }
+        //snapshot
+        if (paths.getSnapshots() == null) {
+            PathsType.Snapshots snap = new PathsType.Snapshots();
+            paths.setSnapshots(snap);
+        }
+        if (paths.getCommandlog() == null) {
+            //cl
+            PathsType.Commandlog cl = new PathsType.Commandlog();
+            paths.setCommandlog(cl);
+        }
+        if (paths.getCommandlogsnapshot() == null) {
+            //cl snap
+            PathsType.Commandlogsnapshot clsnap = new PathsType.Commandlogsnapshot();
+            paths.setCommandlogsnapshot(clsnap);
+        }
+        if (paths.getExportoverflow() == null) {
+            //export overflow
+            PathsType.Exportoverflow exp = new PathsType.Exportoverflow();
+            paths.setExportoverflow(exp);
+        }
+        if (paths.getDroverflow() == null) {
+            final PathsType.Droverflow droverflow = new PathsType.Droverflow();
+            paths.setDroverflow(droverflow);
+        }
 
-            //Command log info
-            if (deployment.getCommandlog() == null) {
-                boolean enabled = false;
-                if (MiscUtils.isPro()) {
-                    enabled = true;
-                }
-                CommandLogType cl = new CommandLogType();
-                cl.setEnabled(enabled);
-                Frequency freq = new Frequency();
-                cl.setFrequency(freq);
-                deployment.setCommandlog(cl);
+        //Command log info
+        if (deployment.getCommandlog() == null) {
+            boolean enabled = false;
+            if (MiscUtils.isPro()) {
+                enabled = true;
             }
-            //System settings
-            SystemSettingsType ss = deployment.getSystemsettings();
-            if (deployment.getSystemsettings() == null) {
-                ss = new SystemSettingsType();
-                deployment.setSystemsettings(ss);
-            }
-            SystemSettingsType.Elastic sse = ss.getElastic();
-            if (sse == null) {
-               sse = new SystemSettingsType.Elastic();
-               ss.setElastic(sse);
-            }
-            SystemSettingsType.Query query = ss.getQuery();
-            if (query == null) {
-               query = new SystemSettingsType.Query();
-               ss.setQuery(query);
-            }
-            SystemSettingsType.Snapshot snap = ss.getSnapshot();
-            if (snap == null) {
-               snap = new SystemSettingsType.Snapshot();
-               ss.setSnapshot(snap);
-            }
-            SystemSettingsType.Temptables tt = ss.getTemptables();
-            if (tt == null) {
-               tt = new SystemSettingsType.Temptables();
-               ss.setTemptables(tt);
-            }
+            CommandLogType cl = new CommandLogType();
+            cl.setEnabled(enabled);
+            Frequency freq = new Frequency();
+            cl.setFrequency(freq);
+            deployment.setCommandlog(cl);
+        }
+        //System settings
+        SystemSettingsType ss = deployment.getSystemsettings();
+        if (deployment.getSystemsettings() == null) {
+            ss = new SystemSettingsType();
+            deployment.setSystemsettings(ss);
+        }
+        SystemSettingsType.Elastic sse = ss.getElastic();
+        if (sse == null) {
+            sse = new SystemSettingsType.Elastic();
+            ss.setElastic(sse);
+        }
+        SystemSettingsType.Query query = ss.getQuery();
+        if (query == null) {
+            query = new SystemSettingsType.Query();
+            ss.setQuery(query);
+        }
+        SystemSettingsType.Snapshot snap = ss.getSnapshot();
+        if (snap == null) {
+            snap = new SystemSettingsType.Snapshot();
+            ss.setSnapshot(snap);
+        }
+        SystemSettingsType.Temptables tt = ss.getTemptables();
+        if (tt == null) {
+            tt = new SystemSettingsType.Temptables();
+            ss.setTemptables(tt);
+        }
     }
 
     /**
@@ -926,11 +1000,11 @@ public abstract class CatalogUtil {
         }
     }
 
-    private static Properties checkExportProcessorConfiguration(ExportType exportType) {
+    private static Properties checkExportProcessorConfiguration(ExportConfigurationType exportConfiguration) {
         // on-server export always uses the guest processor
         String exportClientClassName = null;
 
-        switch(exportType.getTarget()) {
+        switch(exportConfiguration.getType()) {
             case FILE: exportClientClassName = "org.voltdb.exportclient.ExportToFileClient"; break;
             case JDBC: exportClientClassName = "org.voltdb.exportclient.JDBCExportClient"; break;
             case KAFKA: exportClientClassName = "org.voltdb.exportclient.KafkaExportClient"; break;
@@ -938,30 +1012,36 @@ public abstract class CatalogUtil {
             case HTTP: exportClientClassName = "org.voltdb.exportclient.HttpExportClient"; break;
             //Validate that we can load the class.
             case CUSTOM:
-                exportClientClassName = exportType.getExportconnectorclass();
-                if (exportType.isEnabled()) try {
-                    CatalogUtil.class.getClassLoader().loadClass(exportClientClassName);
+                exportClientClassName = exportConfiguration.getExportconnectorclass();
+                if (exportConfiguration.isEnabled()) {
+                    try {
+                        CatalogUtil.class.getClassLoader().loadClass(exportClientClassName);
+                    }
+                    catch (ClassNotFoundException ex) {
+                        String msg =
+                                "Custom Export failed to configure, failed to load" +
+                                " export plugin class: " + exportConfiguration.getExportconnectorclass() +
+                                " Disabling export.";
+                        hostLog.error(msg);
+                        throw new DeploymentCheckException(msg);
+                    }
                 }
-                catch (ClassNotFoundException ex) {
-                    String msg =
-                            "Custom Export failed to configure, failed to load " +
-                            " export plugin class: " + exportType.getExportconnectorclass() +
-                            " Disabling export.";
-                    hostLog.error(msg);
-                    throw new DeploymentCheckException(msg);
-            }
             break;
         }
 
         Properties processorProperties = new Properties();
 
         if (exportClientClassName != null && exportClientClassName.trim().length() > 0) {
-            //Override for tests
             String dexportClientClassName = System.getProperty(ExportDataProcessor.EXPORT_TO_TYPE, exportClientClassName);
-            processorProperties.setProperty(ExportDataProcessor.EXPORT_TO_TYPE, dexportClientClassName);
+            //Override for tests
+            if (dexportClientClassName != null && dexportClientClassName.trim().length() > 0 &&
+                    exportConfiguration.getType().equals(ServerExportEnum.CUSTOM)) {
+                processorProperties.setProperty(ExportDataProcessor.EXPORT_TO_TYPE, dexportClientClassName);
+            } else {
+                processorProperties.setProperty(ExportDataProcessor.EXPORT_TO_TYPE, exportClientClassName);
+            }
         }
 
-        ExportConfigurationType exportConfiguration = exportType.getConfiguration();
         if (exportConfiguration != null) {
             List<PropertyType> configProperties = exportConfiguration.getProperty();
             if (configProperties != null && ! configProperties.isEmpty()) {
@@ -979,7 +1059,7 @@ public abstract class CatalogUtil {
             }
         }
 
-        if (!exportType.isEnabled()) {
+        if (!exportConfiguration.isEnabled()) {
             return processorProperties;
         }
 
@@ -999,15 +1079,19 @@ public abstract class CatalogUtil {
         }
         try {
             processor.addLogger(hostLog);
-            processor.setProcessorConfig(processorProperties);
+
+            processorProperties.put(ExportManager.CONFIG_CHECK_ONLY, "true");
+            processor.checkProcessorConfig(processorProperties);
             processor.shutdown();
         } catch (Exception e) {
             hostLog.error("Export processor failed its configuration check", e);
             throw new DeploymentCheckException("Export processor failed its configuration check: " + e.getMessage(), e);
         }
 
+        processorProperties.remove(ExportManager.CONFIG_CHECK_ONLY);
         return processorProperties;
     }
+
     /**
      * Set deployment time settings for export
      * @param catalog The catalog to be updated.
@@ -1017,46 +1101,88 @@ public abstract class CatalogUtil {
         if (exportType == null) {
             return;
         }
+        List<String> streamList = new ArrayList<String>();
+        boolean noEmptyTarget = (exportType.getConfiguration().size() != 1);
+        for (ExportConfigurationType exportConfiguration : exportType.getConfiguration()) {
 
-        boolean isEnabled = exportType.isEnabled();
-
-        Database db = catalog.getClusters().get("cluster").getDatabases().get("database");
-        org.voltdb.catalog.Connector catconn = db.getConnectors().get("0");
-        if (catconn == null) {
-            if (isEnabled) {
-                hostLog.info("Export configuration enabled in deployment file however no export " +
-                        "tables are present in the project file. Export disabled.");
+            boolean connectorEnabled = exportConfiguration.isEnabled();
+            // Get the stream name from the xml attribute "stream"
+            // Should default to Constants.DEFAULT_EXPORT_CONNECTOR_NAME if not specified
+            String streamName = exportConfiguration.getStream();
+            if (streamName == null || streamName.trim().isEmpty()) {
+                    throw new RuntimeException("stream must be specified along with type in export configuration.");
             }
-            return;
-        }
 
-        Properties processorProperties = checkExportProcessorConfiguration(exportType);
-        for (String name: processorProperties.stringPropertyNames()) {
-            ConnectorProperty prop = catconn.getConfig().add(name);
-            prop.setName(name);
-            prop.setValue(processorProperties.getProperty(name));
-        }
+            if (connectorEnabled) {
+                if (streamList.contains(streamName)) {
+                    throw new RuntimeException("Multiple connectors can not be assigned to single export stream: " +
+                            streamName + ".");
+                }
+                else {
+                    streamList.add(streamName);
+                }
+            }
+            boolean defaultConnector = streamName.equals(Constants.DEFAULT_EXPORT_CONNECTOR_NAME);
 
-        // on-server export always uses the guest processor
-        catconn.setLoaderclass(ExportManager.PROCESSOR_CLASS);
-        catconn.setEnabled(isEnabled);
+            Database db = catalog.getClusters().get("cluster").getDatabases().get("database");
 
-        //Set class back in deployment for display
-        exportType.setExportconnectorclass(
-                processorProperties.getProperty(ExportDataProcessor.EXPORT_TO_TYPE)
-                );
+            org.voltdb.catalog.Connector catconn = db.getConnectors().get(streamName);
+            if (catconn == null) {
+                if (connectorEnabled) {
+                    if (defaultConnector) {
+                        hostLog.info("Export configuration enabled and provided for the default export " +
+                                     "stream in deployment file, however, no export " +
+                                     "tables are assigned to the default stream. " +
+                                     "Export stream will be disabled.");
+                    }
+                    else {
+                        hostLog.info("Export configuration enabled and provided for export stream " +
+                                     streamName +
+                                     " in deployment file however no export " +
+                                     "tables are assigned to the this stream. " +
+                                     "Export stream " + streamName + " will be disabled.");
+                    }
+                }
+                continue;
+            }
+            Properties processorProperties = checkExportProcessorConfiguration(exportConfiguration);
+            for (String name: processorProperties.stringPropertyNames()) {
+                ConnectorProperty prop = catconn.getConfig().add(name);
+                prop.setName(name);
+                prop.setValue(processorProperties.getProperty(name));
+            }
 
-        if (!isEnabled) {
-            hostLog.info("Export configuration is present and is " +
-               "configured to be disabled. Export will be disabled.");
-        } else {
-            hostLog.info("Export is configured and enabled with type=" + exportType.getTarget());
-            ExportConfigurationType exportConfiguration = exportType.getConfiguration();
-            if (exportConfiguration != null && exportConfiguration.getProperty() != null) {
-                hostLog.info("Export configuration properties are: ");
-                for (PropertyType configProp : exportConfiguration.getProperty()) {
-                    if (!configProp.getName().toLowerCase().contains("passw")) {
-                        hostLog.info("Export Configuration Property NAME=" + configProp.getName() + " VALUE=" + configProp.getValue());
+            // on-server export always uses the guest processor
+            catconn.setLoaderclass(ExportManager.PROCESSOR_CLASS);
+            catconn.setEnabled(connectorEnabled);
+
+            if (!connectorEnabled) {
+                if (defaultConnector) {
+                    hostLog.info("Export configuration for the default export stream is present and is " +
+                            "configured to be disabled. The default export stream will be disabled.");
+                }
+                else {
+                    hostLog.info("Export configuration for export stream " + streamName + " is present and is " +
+                                 "configured to be disabled. Export stream " + streamName + " will be disabled.");
+                }
+            } else {
+                if (defaultConnector) {
+                    hostLog.info("Default export stream is configured and enabled with type=" + exportConfiguration.getType());
+                }
+                else {
+                    hostLog.info("Export stream " + streamName + " is configured and enabled with type=" + exportConfiguration.getType());
+                }
+                if (exportConfiguration.getProperty() != null) {
+                    if (defaultConnector) {
+                        hostLog.info("Default export stream configuration properties are: ");
+                    }
+                    else {
+                        hostLog.info("Export stream " + streamName + " configuration properties are: ");
+                    }
+                    for (PropertyType configProp : exportConfiguration.getProperty()) {
+                        if (!configProp.getName().toLowerCase().contains("password")) {
+                            hostLog.info("Export Configuration Property NAME=" + configProp.getName() + " VALUE=" + configProp.getValue());
+                        }
                     }
                 }
             }
@@ -1177,6 +1303,8 @@ public abstract class CatalogUtil {
 
         //Also set the export overflow directory
         cluster.setExportoverflow(exportOverflowPath.getPath());
+
+        cluster.setDroverflow(getDROverflow(paths.getDroverflow(), voltDbRoot).getPath());
 
         //Set the command log paths, also creates the command log entry in the catalog
         final org.voltdb.catalog.CommandLog commandLogConfig = cluster.getLogconfig().add("log");
@@ -1313,6 +1441,27 @@ public abstract class CatalogUtil {
 
     }
 
+    public static File getDROverflow(PathsType.Droverflow paths, File voltDbRoot) {
+        File drOverflowPath;
+        drOverflowPath = new File(paths.getPath());
+        if (!drOverflowPath.isAbsolute())
+        {
+            drOverflowPath = new VoltFile(voltDbRoot, paths.getPath());
+        }
+
+        if (!drOverflowPath.exists()) {
+            hostLog.info("Creating DR overflow directory: " +
+                         drOverflowPath.getAbsolutePath());
+            if (!drOverflowPath.mkdirs()) {
+                hostLog.fatal("Failed to create DR overflow path directory \"" +
+                              drOverflowPath + "\"");
+            }
+        }
+        validateDirectory("DR overflow", drOverflowPath);
+        return drOverflowPath;
+
+    }
+
     /**
      * Set user info in the catalog.
      * @param catalog The catalog to be updated.
@@ -1333,8 +1482,10 @@ public abstract class CatalogUtil {
         for (UsersType.User user : users.getUser()) {
 
             String sha1hex = user.getPassword();
+            String sha256hex = user.getPassword();
             if (user.isPlaintext()) {
-                sha1hex = extractPassword(user.getPassword());
+                sha1hex = extractPassword(user.getPassword(), ClientAuthHashScheme.HASH_SHA1);
+                sha256hex = extractPassword(user.getPassword(), ClientAuthHashScheme.HASH_SHA256);
             }
             org.voltdb.catalog.User catUser = db.getUsers().add(user.getName());
 
@@ -1342,7 +1493,12 @@ public abstract class CatalogUtil {
                     BCrypt.hashpw(
                             sha1hex,
                             BCrypt.gensalt(BCrypt.GENSALT_DEFAULT_LOG2_ROUNDS,sr));
+            String hashedPW256 =
+                    BCrypt.hashpw(
+                            sha256hex,
+                            BCrypt.gensalt(BCrypt.GENSALT_DEFAULT_LOG2_ROUNDS,sr));
             catUser.setShadowpassword(hashedPW);
+            catUser.setSha256shadowpassword(hashedPW256);
 
             // process the @groups and @roles comma separated list
             for (final String role : extractUserRoles(user)) {
@@ -1390,14 +1546,29 @@ public abstract class CatalogUtil {
         cluster.setJsonapi(httpd.getJsonapi().isEnabled());
     }
 
+    private static void setDrInfo(Catalog catalog, DrType dr) {
+        if (dr != null) {
+            Cluster cluster = catalog.getClusters().get("cluster");
+            ConnectionType drConnection = dr.getConnection();
+            cluster.setDrproducerenabled(dr.isListen());
+            cluster.setDrclusterid(dr.getId());
+            cluster.setDrproducerport(dr.getPort());
+            if (drConnection != null) {
+                String drSource = drConnection.getSource();
+                cluster.setDrmasterhost(drSource);
+                hostLog.info("Configured connection for DR replica role to host " + drSource);
+            }
+        }
+    }
+
     /** Read a hashed password from password.
-     *  SHA-1 hash it once to match what we will get from the wire protocol
+     *  SHA* hash it once to match what we will get from the wire protocol
      *  and then hex encode it
      * */
-    private static String extractPassword(String password) {
+    private static String extractPassword(String password, ClientAuthHashScheme scheme) {
         MessageDigest md = null;
         try {
-            md = MessageDigest.getInstance("SHA-1");
+            md = MessageDigest.getInstance(ClientAuthHashScheme.getDigestScheme(scheme));
         } catch (final NoSuchAlgorithmException e) {
             hostLog.l7dlog(Level.FATAL, LogKeys.compiler_VoltCompiler_NoSuchAlgorithm.name(), e);
             System.exit(-1);
@@ -1411,7 +1582,7 @@ public abstract class CatalogUtil {
      * or deployment file, do the irritating exception crash test, jam the bytes in,
      * and get the SHA-1 hash.
      */
-    public static byte[] makeCatalogOrDeploymentHash(byte[] inbytes)
+    public static byte[] makeDeploymentHash(byte[] inbytes)
     {
         MessageDigest md = null;
         try {
@@ -1447,8 +1618,14 @@ public abstract class CatalogUtil {
         versionAndBytes.putInt(catalogVersion);
         versionAndBytes.putLong(txnId);
         versionAndBytes.putLong(uniqueId);
-        versionAndBytes.put(makeCatalogOrDeploymentHash(catalogBytes));
-        versionAndBytes.put(makeCatalogOrDeploymentHash(deploymentBytes));
+        try {
+            versionAndBytes.put((new InMemoryJarfile(catalogBytes)).getSha1Hash());
+        }
+        catch (IOException ioe) {
+            VoltDB.crashLocalVoltDB("Unable to build InMemoryJarfile from bytes, should never happen.",
+                    true, ioe);
+        }
+        versionAndBytes.put(makeDeploymentHash(deploymentBytes));
         versionAndBytes.putInt(catalogBytes.length);
         versionAndBytes.put(catalogBytes);
         versionAndBytes.putInt(deploymentBytes.length);
@@ -1712,6 +1889,61 @@ public abstract class CatalogUtil {
         return emptyJarFile;
     }
 
+    /**
+     * Get a string signature for the table represented by the args
+     * @param name The name of the table
+     * @param schema A sorted map of the columns in the table, keyed by column index
+     * @return The table signature string.
+     */
+    public static String getSignatureForTable(String name, SortedMap<Integer, VoltType> schema) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(name).append(SIGNATURE_TABLE_NAME_SEPARATOR);
+        for (VoltType t : schema.values()) {
+            sb.append(t.getSignatureChar());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Deterministically serializes all DR table signatures into a string and calculates the CRC checksum.
+     * @param catalog    The catalog
+     * @return A pair of CRC checksum and the serialized signature string.
+     */
+    public static Pair<Long, String> calculateDrTableSignatureAndCrc(Database catalog) {
+        SortedSet<Table> tables = Sets.newTreeSet();
+        tables.addAll(getNormalTables(catalog, true));
+        tables.addAll(getNormalTables(catalog, false));
+
+        final PureJavaCrc32 crc = new PureJavaCrc32();
+        final StringBuilder sb = new StringBuilder();
+        String delimiter = "";
+        for (Table t : tables) {
+            if (t.getIsdred()) {
+                crc.update(t.getSignature().getBytes(Charsets.UTF_8));
+                sb.append(delimiter).append(t.getSignature());
+                delimiter = SIGNATURE_DELIMITER;
+            }
+        }
+
+        return Pair.of(crc.getValue(), sb.toString());
+    }
+
+    /**
+     * Deserializes a catalog DR table signature string into a map of table signatures.
+     * @param signature    The signature string that includes multiple DR table signatures
+     * @return A map of signatures from table names to table signatures.
+     */
+    public static Map<String, String> deserializeCatalogSignature(String signature) {
+        Map<String, String> tableSignatures = Maps.newHashMap();
+        for (String oneSig : signature.split(Pattern.quote(SIGNATURE_DELIMITER))) {
+            if (!oneSig.isEmpty()) {
+                final String[] parts = oneSig.split(Pattern.quote(SIGNATURE_TABLE_NAME_SEPARATOR), 2);
+                tableSignatures.put(parts[0], parts[1]);
+            }
+        }
+        return tableSignatures;
+    }
+
     public static class DeploymentCheckException extends RuntimeException {
 
         private static final long serialVersionUID = 6741313621335268608L;
@@ -1734,4 +1966,14 @@ public abstract class CatalogUtil {
 
     }
 
+    /** Given a table, return the DELETE statement that can be executed
+     * by a LIMIT PARTITION ROWS constraint, or NULL if there isn't one. */
+    public static String getLimitPartitionRowsDeleteStmt(Table table) {
+        CatalogMap<Statement> map = table.getTuplelimitdeletestmt();
+        if (map.isEmpty())
+            return null;
+
+        assert (map.size() == 1);
+        return map.iterator().next().getSqltext();
+    }
 }

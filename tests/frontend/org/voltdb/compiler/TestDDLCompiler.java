@@ -46,16 +46,16 @@ public class TestDDLCompiler extends TestCase {
 
     public void testSimpleDDLCompiler() throws HSQLParseException {
         String ddl1 =
-            "CREATE TABLE \"warehouse\" ( " +
-            "\"w_id\" integer default '0' NOT NULL, " +
-            "\"w_name\" varchar(16) default NULL, " +
-            "\"w_street_1\" varchar(32) default NULL, " +
-            "\"w_street_2\" varchar(32) default NULL, " +
-            "\"w_city\" varchar(32) default NULL, " +
-            "\"w_state\" varchar(2) default NULL, " +
-            "\"w_zip\" varchar(9) default NULL, " +
-            "\"w_tax\" float default NULL, " +
-            "PRIMARY KEY  (\"w_id\") " +
+            "CREATE TABLE warehouse ( " +
+            "w_id integer default '0' NOT NULL, " +
+            "w_name varchar(16) default NULL, " +
+            "w_street_1 varchar(32) default NULL, " +
+            "w_street_2 varchar(32) default NULL, " +
+            "w_city varchar(32) default NULL, " +
+            "w_state varchar(2) default NULL, " +
+            "w_zip varchar(9) default NULL, " +
+            "w_tax float default NULL, " +
+            "PRIMARY KEY  (w_id) " +
             ");";
 
         HSQLInterface hsql = HSQLInterface.loadHsqldb();
@@ -70,8 +70,8 @@ public class TestDDLCompiler extends TestCase {
 
     public void testCharIsNotAllowed() {
         String ddl1 =
-            "CREATE TABLE \"warehouse\" ( " +
-            "\"w_street_1\" char(32) default NULL, " +
+            "CREATE TABLE warehouse ( " +
+            "w_street_1 char(32) default NULL, " +
             ");";
 
         HSQLInterface hsql = HSQLInterface.loadHsqldb();
@@ -322,6 +322,14 @@ public class TestDDLCompiler extends TestCase {
                 "CREATE VIEW VT2 (V_D1_D2, V_D3, CNT, MIN_VAL1, SUM_VAL2, MAX_VAL3) " +
                 "AS SELECT D1 + D2, ABS(D3), COUNT(*), MIN(VAL1), SUM(VAL2), MAX(VAL3) " +
                 "FROM T " +
+                "GROUP BY D1 + D2, ABS(D3);" +
+                "CREATE VIEW VT3 (V_D1, V_D2, V_D3, CNT, MIN_VAL1_VAL2, MAX_ABS_VAL3) " +
+                "AS SELECT D1, D2, D3, COUNT(*), MIN(VAL1 + VAL2), MAX(ABS(VAL3)) " +
+                "FROM T WHERE D1 > 3 " +
+                "GROUP BY D1, D2, D3;\n" +
+                "CREATE VIEW VT4 (V_D1_D2, V_D3, CNT, MIN_VAL1, SUM_VAL2, MAX_VAL3) " +
+                "AS SELECT D1 + D2, ABS(D3), COUNT(*), MIN(VAL1), SUM(VAL2), MAX(VAL3) " +
+                "FROM T WHERE D1 > 3 " +
                 "GROUP BY D1 + D2, ABS(D3);",
 
                 // schema with indexes (should have no warnings)
@@ -330,6 +338,8 @@ public class TestDDLCompiler extends TestCase {
                "CREATE INDEX T_TREE_2 ON T(D1, D2);\n" +
                "CREATE INDEX T_TREE_3 ON T(D1+D2, ABS(D3));\n" +
                "CREATE INDEX T_TREE_4 ON T(D1, D2, D3);\n" +
+               "CREATE INDEX T_TREE_5 ON T(D1, D2, D3) WHERE D1 > 3;\n" +
+               "CREATE INDEX T_TREE_6 ON T(D1+D2, ABS(D3)) WHERE D1 > 3;\n" +
                "CREATE VIEW VT1 (V_D1, V_D2, V_D3, CNT, MIN_VAL1_VAL2, MAX_ABS_VAL3) " +
                "AS SELECT D1, D2, D3, COUNT(*), MIN(VAL1 + VAL2), MAX(ABS(VAL3)) " +
                "FROM T " +
@@ -337,6 +347,14 @@ public class TestDDLCompiler extends TestCase {
                "CREATE VIEW VT2 (V_D1_D2, V_D3, CNT, MIN_VAL1, SUM_VAL2, MAX_VAL3) " +
                "AS SELECT D1 + D2, ABS(D3), COUNT(*), MIN(VAL1), SUM(VAL2), MAX(VAL3) " +
                "FROM T " +
+               "GROUP BY D1 + D2, ABS(D3);" +
+               "CREATE VIEW VT3 (V_D1, V_D2, V_D3, CNT, MIN_VAL1_VAL2, MAX_ABS_VAL3) " +
+               "AS SELECT D1, D2, D3, COUNT(*), MIN(VAL1 + VAL2), MAX(ABS(VAL3)) " +
+               "FROM T WHERE D1 > 3 " +
+               "GROUP BY D1, D2, D3;\n" +
+               "CREATE VIEW VT4 (V_D1_D2, V_D3, CNT, MIN_VAL1, SUM_VAL2, MAX_VAL3) " +
+               "AS SELECT D1 + D2, ABS(D3), COUNT(*), MIN(VAL1), SUM(VAL2), MAX(VAL3) " +
+               "FROM T WHERE D1 > 3 " +
                "GROUP BY D1 + D2, ABS(D3);",
 
                // schema with no indexes and mat view with no min / max
@@ -355,10 +373,15 @@ public class TestDDLCompiler extends TestCase {
                 "CREATE INDEX T_TREE_1 ON T(D1, D2 + D3);\n" +
                 "CREATE INDEX T_TREE_2 ON T(D1, D2 + D3, D3);\n" +
                 "CREATE INDEX T_TREE_3 ON T(D1, D2);\n" +
+                "CREATE INDEX T_TREE_4 ON T(D1, D2, D3) WHERE D1 > 0;\n" +
                 "CREATE VIEW VT1 (V_D1, V_D2, V_D3, CNT, MIN_VAL1_VAL2, MAX_ABS_VAL3) " +
                 "AS SELECT D1, D2, D3, COUNT(*), MIN(VAL1 + VAL2), MAX(ABS(VAL3)) " +
+                "FROM T WHERE D2 > 0 " +
+                "GROUP BY D1, D2, D3;\n" +
+                "CREATE VIEW VT2 (V_D1, V_D2, V_D3, CNT, MIN_VAL1_VAL2, MAX_ABS_VAL3) " +
+                "AS SELECT D1, D2, D3, COUNT(*), MIN(VAL1 + VAL2), MAX(ABS(VAL3)) " +
                 "FROM T " +
-                "GROUP BY D1, D2, D3;",
+                "GROUP BY D1, D2, D3;\n",
 
                 // schemas with index but can not be used for mat view with min / max
                 "CREATE TABLE T (D1 INTEGER, D2 INTEGER, D3 INTEGER, VAL1 INTEGER, VAL2 INTEGER, VAL3 INTEGER);\n" +
@@ -379,7 +402,7 @@ public class TestDDLCompiler extends TestCase {
                 "GROUP BY D1, D2-D3, D3;",
         };
 
-        int expectWarning[] = { 2, 0, 0, 1, 2 };
+        int expectWarning[] = { 4, 0, 0, 2, 2 };
         // boilerplate for making a project
         final String simpleProject =
                 "<?xml version=\"1.0\"?>\n" +
@@ -423,6 +446,67 @@ public class TestDDLCompiler extends TestCase {
         }
     }
 
+    public void testExportTables() {
+        File jarOut = new File("exportTables.jar");
+        jarOut.deleteOnExit();
+
+        String schema[] = {
+                // export table w/o group
+                "CREATE TABLE T (D1 INTEGER, D2 INTEGER, D3 INTEGER, VAL1 INTEGER, VAL2 INTEGER, VAL3 INTEGER);\n" +
+                "EXPORT TABLE T;",
+
+                // export table w/ group
+                "CREATE TABLE T (D1 INTEGER, D2 INTEGER, D3 INTEGER, VAL1 INTEGER, VAL2 INTEGER, VAL3 INTEGER);\n" +
+                "EXPORT TABLE T TO STREAM FOO;",
+
+                // export table w/ and w/o group
+                "CREATE TABLE T (T_D1 INTEGER, T_D2 INTEGER, T_D3 INTEGER, T_VAL1 INTEGER, T_VAL2 INTEGER, T_VAL3 INTEGER);\n" +
+                "CREATE TABLE S (S_D1 INTEGER, S_D2 INTEGER, S_D3 INTEGER, S_VAL1 INTEGER, S_VAL2 INTEGER, S_VAL3 INTEGER);\n" +
+                "EXPORT TABLE T;\n" +
+                "EXPORT TABLE S TO STREAM FOO;"
+        };
+
+        VoltCompiler compiler = new VoltCompiler();
+        for (int ii = 0; ii < schema.length; ++ii) {
+            File schemaFile = VoltProjectBuilder.writeStringToTempFile(schema[ii]);
+            String schemaPath = schemaFile.getPath();
+
+            // compile successfully
+            boolean success = false;
+            try {
+                success = compiler.compileFromDDL(jarOut.getPath(), schemaPath);
+            }
+            catch (Exception e) {
+                // do nothing
+            }
+            assertTrue(success);
+
+            // cleanup after the test
+            jarOut.delete();
+        }
+    }
+
+    public void testExportDRTable() {
+        File jarOut = new File("exportDrTables.jar");
+        jarOut.deleteOnExit();
+
+        VoltCompiler compiler = new VoltCompiler();
+        File schemaFile = VoltProjectBuilder.writeStringToTempFile(
+        "CREATE TABLE T (D1 INTEGER, D2 INTEGER, D3 INTEGER, VAL1 INTEGER, VAL2 INTEGER, VAL3 INTEGER);\n" +
+        "DR TABLE T;\n" +
+        "EXPORT TABLE T;");
+        String schemaPath = schemaFile.getPath();
+
+        try {
+            assertFalse(compiler.compileFromDDL(jarOut.getPath(), schemaPath));
+        } catch (Exception e) {
+            fail(e.getMessage());
+        }
+
+        // cleanup after the test
+        jarOut.delete();
+    }
+
     public void testNullAnnotation() throws IOException {
 
         Catalog catalog  = new TPCCProjectBuilder().createTPCCSchemaCatalog();
@@ -431,5 +515,34 @@ public class TestDDLCompiler extends TestCase {
         for(Table t : catalog_db.getTables()) {
             assertNotNull(((TableAnnotation)t.getAnnotation()).ddl);
         }
+    }
+
+    public void testQuotedNameIsNotAllowed() {
+        class Tester {
+            HSQLInterface hsql = HSQLInterface.loadHsqldb();
+            void testSuccess(String ddl) {
+                try {
+                    hsql.runDDLCommand(ddl);
+                }
+                catch (HSQLParseException e) {
+                    fail(String.format("Expected DDL to succeed: %s", ddl));
+                }
+            }
+            void testFailure(String ddl) {
+                try {
+                    hsql.runDDLCommand(ddl);
+                }
+                catch (HSQLParseException e) {
+                    return;
+                }
+                fail(String.format("Expected DDL to fail: %s", ddl));
+            }
+        }
+        Tester tester = new Tester();
+        tester.testFailure("create table \"a_quoted_table_without_spaces\" (an_unquoted_column integer)");
+        tester.testFailure("create table \"a quoted table with spaces\" (an_unquoted_column integer)");
+        tester.testFailure("create table an_unquoted_table (\"a_quoted_column_without_spaces\" integer)");
+        tester.testFailure("create table an_unquoted_table (\"a quoted column with spaces\" integer)");
+        tester.testSuccess("create table an_unquoted_table (an_unquoted_column integer)");
     }
 }

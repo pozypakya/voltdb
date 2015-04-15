@@ -47,6 +47,7 @@ import org.voltdb.catalog.Index;
 import org.voltdb.catalog.Procedure;
 import org.voltdb.catalog.Statement;
 import org.voltdb.catalog.Table;
+import org.voltdb.common.Constants;
 import org.voltdb.common.Permission;
 import org.voltdb.compilereport.ProcedureAnnotation;
 import org.voltdb.compilereport.TableAnnotation;
@@ -80,7 +81,7 @@ public abstract class CatalogSchemaTools {
      * @param Boolean - true if this Table is an Export Table
      * @return SQL Schema text representing the CREATE TABLE statement to generate the table
      */
-    public static String toSchema(StringBuilder sb, Table catalog_tbl, String viewQuery, boolean isExportTable) {
+    public static String toSchema(StringBuilder sb, Table catalog_tbl, String viewQuery, String isExportTableWithTarget) {
         assert(!catalog_tbl.getColumns().isEmpty());
         boolean tableIsView = (viewQuery != null);
 
@@ -280,10 +281,8 @@ public abstract class CatalogSchemaTools {
 
         if (catalog_tbl.getTuplelimit() != Integer.MAX_VALUE) {
             table_sb.append(add + spacer + "LIMIT PARTITION ROWS " + String.valueOf(catalog_tbl.getTuplelimit()) );
-            CatalogMap<Statement> deleteMap = catalog_tbl.getTuplelimitdeletestmt();
-            if (deleteMap.size() > 0) {
-                assert(deleteMap.size() == 1);
-                String deleteStmt = deleteMap.iterator().next().getSqltext();
+            String deleteStmt = CatalogUtil.getLimitPartitionRowsDeleteStmt(catalog_tbl);
+            if (deleteStmt != null) {
                 if (deleteStmt.endsWith(";")) {
                     // StatementCompiler appends the semicolon, we don't want it here.
                     deleteStmt = deleteStmt.substring(0, deleteStmt.length() - 1);
@@ -352,11 +351,31 @@ public abstract class CatalogSchemaTools {
                     add = ", ";
                 }
             }
-            sb.append(");\n");
+            sb.append(")");
+
+            String jsonPredicate = catalog_idx.getPredicatejson();
+            if (!jsonPredicate.isEmpty()) {
+                try {
+                    AbstractExpression predicate = AbstractExpression.fromJSONString(jsonPredicate,
+                        new StmtTargetTableScan(catalog_tbl, catalog_tbl.getTypeName()));
+                    sb.append(" WHERE " + predicate.explain(catalog_tbl.getTypeName()));
+                } catch (JSONException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+            }
+            sb.append(";\n");
+        }
+        if (isExportTableWithTarget != null) {
+            sb.append("EXPORT TABLE " + catalog_tbl.getTypeName());
+            if (!isExportTableWithTarget.equalsIgnoreCase(Constants.DEFAULT_EXPORT_CONNECTOR_NAME)) {
+                sb.append(" TO STREAM " + isExportTableWithTarget);
+            }
+            sb.append(";\n");
         }
 
-        if (isExportTable) {
-            sb.append("EXPORT TABLE " + catalog_tbl.getTypeName() + ";\n");
+        if (catalog_tbl.getIsdred()) {
+            sb.append("DR TABLE " + catalog_tbl.getTypeName() + ";\n");
         }
 
         sb.append("\n");
@@ -523,12 +542,12 @@ public abstract class CatalogSchemaTools {
                         viewList.add(table);
                         continue;
                     }
-                    toSchema(sb, table, null, CatalogUtil.isTableExportOnly(db, table));
+                    toSchema(sb, table, null, CatalogUtil.getExportTargetIfExportTableOrNullOtherwise(db, table));
                 }
                 // A View cannot preceed a table that it depends on in the DDL
                 for (Table table : viewList) {
                     String viewQuery = ((TableAnnotation)table.getAnnotation()).ddl;
-                    toSchema(sb, table, viewQuery, CatalogUtil.isTableExportOnly(db, table));
+                    toSchema(sb, table, viewQuery, CatalogUtil.getExportTargetIfExportTableOrNullOtherwise(db, table));
                 }
                 sb.append("\n");
 

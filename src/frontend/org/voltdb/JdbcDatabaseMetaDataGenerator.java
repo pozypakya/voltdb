@@ -27,6 +27,7 @@ import org.voltdb.VoltTable.ColumnInfo;
 import org.voltdb.catalog.Catalog;
 import org.voltdb.catalog.Column;
 import org.voltdb.catalog.ColumnRef;
+import org.voltdb.catalog.Connector;
 import org.voltdb.catalog.Constraint;
 import org.voltdb.catalog.Database;
 import org.voltdb.catalog.Index;
@@ -36,6 +37,7 @@ import org.voltdb.catalog.Table;
 import org.voltdb.types.ConstraintType;
 import org.voltdb.types.IndexType;
 import org.voltdb.types.VoltDecimalHelper;
+import org.voltdb.utils.CatalogUtil;
 import org.voltdb.utils.InMemoryJarfile;
 
 public class JdbcDatabaseMetaDataGenerator
@@ -48,6 +50,8 @@ public class JdbcDatabaseMetaDataGenerator
     public static final String JSON_READ_ONLY = "readOnly";
     public static final String JSON_PARTITION_COLUMN = "partitionColumn";
     public static final String JSON_SOURCE_TABLE = "sourceTable";
+    public static final String JSON_LIMIT_PARTITION_ROWS_DELETE_STMT = "limitPartitionRowsDeleteStmt";
+    public static final String JSON_DRED_TABLE = "drEnabled";
     public static final String JSON_ERROR = "error";
 
     static public final ColumnInfo[] TABLE_SCHEMA =
@@ -61,7 +65,7 @@ public class JdbcDatabaseMetaDataGenerator
                           new ColumnInfo("TYPE_SCHEM", VoltType.STRING),
                           new ColumnInfo("TYPE_NAME", VoltType.STRING),
                           new ColumnInfo("SELF_REFERENCING_COL_NAME", VoltType.STRING),
-                          new ColumnInfo("REF_GENERATION", VoltType.STRING),
+                          new ColumnInfo("REF_GENERATION", VoltType.STRING)
                          };
 
     static public final ColumnInfo[] COLUMN_SCHEMA =
@@ -239,12 +243,15 @@ public class JdbcDatabaseMetaDataGenerator
         {
             type = "VIEW";
         }
-        else if (m_database.getConnectors() != null &&
-                 m_database.getConnectors().get("0") != null &&
-                 m_database.getConnectors().get("0").getTableinfo() != null &&
-                 m_database.getConnectors().get("0").getTableinfo().getIgnoreCase(table.getTypeName()) != null)
+        else if (m_database.getConnectors() != null)
         {
-            type = "EXPORT";
+            for (Connector conn : m_database.getConnectors()) {
+                 if (conn.getTableinfo() != null &&
+                         conn.getTableinfo().getIgnoreCase(table.getTypeName()) != null) {
+                     type = "EXPORT";
+                     break;
+                 }
+            }
         }
         return type;
     }
@@ -264,22 +271,35 @@ public class JdbcDatabaseMetaDataGenerator
             }
 
             String remark = null;
-            if (partColumn != null) {
+            try {
                 JSONObject jsObj = new JSONObject();
-                try {
+
+                if (partColumn != null) {
                     jsObj.put(JSON_PARTITION_COLUMN, partColumn.getName());
                     if (type.equals("VIEW")) {
                         jsObj.put(JSON_SOURCE_TABLE, table.getMaterializer().getTypeName());
                     }
-                    remark = jsObj.toString();
-                } catch (JSONException e) {
-                    hostLog.warn("You have encountered an unexpected error while generating results for the " +
-                            "@SystemCatalog procedure call. This error will not affect your database's " +
-                            "operation. Please contact VoltDB support with your log files and a " +
-                            "description of what you were doing when this error occured.", e);
-                    remark = "{\"" + JSON_ERROR + "\",\"" + e.getMessage() + "\"}";
                 }
+
+                String deleteStmt = CatalogUtil.getLimitPartitionRowsDeleteStmt(table);
+                if (deleteStmt != null) {
+                    jsObj.put(JSON_LIMIT_PARTITION_ROWS_DELETE_STMT, deleteStmt);
+                }
+
+                if (table.getIsdred()) {
+                    jsObj.put(JSON_DRED_TABLE, "true");
+                }
+
+                remark = jsObj.length() > 0 ? jsObj.toString() : null;
+
+            } catch (JSONException e) {
+                hostLog.warn("You have encountered an unexpected error while generating results for the " +
+                        "@SystemCatalog procedure call. This error will not affect your database's " +
+                        "operation. Please contact VoltDB support with your log files and a " +
+                        "description of what you were doing when this error occured.", e);
+                remark = "{\"" + JSON_ERROR + "\":\"" + e.getMessage() + "\"}";
             }
+
             results.addRow(null,
                            null, // no schema name
                            table.getTypeName(),
