@@ -3650,12 +3650,21 @@ public class TestVoltCompiler extends TestCase {
 
     public void testDDLPartialIndex()
     {
-        final String s =
-                "create table t(id integer not null, num integer not null);\n" +
-                "create unique index idx_t_idnum on t(id) where id > 4;\n";
+        String s;
+        VoltCompiler c;
+        s = "create table t(id integer not null, num integer not null);\n" +
+            "create index idx_t_idnum on t(id) where id > 4;\n";
 
-        VoltCompiler c = compileForDDLTest(getPathForSchema(s), true);
+        // FIXME: ENG-8038: Add more Unique/Assumeunique partial index tests
+
+        c = compileForDDLTest(getPathForSchema(s), true);
         assertFalse(c.hasErrors());
+
+
+        s = "create table t(id integer not null, num integer not null);\n" +
+            "create unique index idx_t_idnum on t(id) where id > 4;\n";
+
+        checkDDLErrorMessage(s, "is currently not supported for UNIQUE/ASSUMEUNIQUE type index");
     }
 
     public void testInvalidPartialIndex()
@@ -3663,20 +3672,24 @@ public class TestVoltCompiler extends TestCase {
         String ddl = null;
         ddl =
                 "create table t(id integer not null, num integer not null);\n" +
-                "create unique index IDX_T_IDNUM on t(id) where max(id) > 4;\n";
+                "create index IDX_T_IDNUM on t(id) where max(id) > 4;\n";
+        // FIXME: ENG-8038: Add more Unique/Assumeunique partial index tests
 
         checkDDLErrorMessage(ddl, "Partial index \"IDX_T_IDNUM\" with aggregate expression(s) is not supported.");
 
         ddl =
                 "create table t1(id integer not null, num integer not null);\n" +
                 "create table t2(id integer not null, num integer not null);\n" +
-                "create unique index IDX_T1_IDNUM on t1(id) where t2.id > 4;\n";
+                "create index IDX_T1_IDNUM on t1(id) where t2.id > 4;\n";
+        // FIXME: ENG-8038: Add more Unique/Assumeunique partial index tests
 
         checkDDLErrorMessage(ddl, "Partial index \"IDX_T1_IDNUM\" with expression(s) involving other tables is not supported.");
 
         ddl =
                 "create table t(id integer not null, num integer not null);\n" +
-                "create unique index IDX_T_IDNUM on t(id) where id in (select num from t);\n";
+                "create index IDX_T_IDNUM on t(id) where id in (select num from t);\n";
+        // FIXME: ENG-8038: Add more Unique/Assumeunique partial index tests
+
         // @TODO: Remove TRY/CATCH once subqueries are supported
         try {
             checkDDLErrorMessage(ddl, "Partial index \"IDX_T_IDNUM\" with subquery expression(s) is not supported.");
