@@ -1657,6 +1657,11 @@ public class DDLCompiler {
                 }
             } else if (subNode.name.equals("predicate")) {
                 assert(subNode.children.size() == 1);
+                if (unique || assumeUnique) {
+                    String msg = String.format("Sparse Index %s is currently not supported for UNIQUE/ASSUMEUNIQUE type index", name);
+                    throw this.m_compiler.new VoltCompilerException(msg);
+                }
+
                 predicate = buildPartialIndexPredicate(dummy, name, subNode.children.get(0), table);
             }
         }
