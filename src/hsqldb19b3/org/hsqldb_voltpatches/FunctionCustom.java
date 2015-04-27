@@ -526,25 +526,29 @@ public class FunctionCustom extends FunctionSQL {
                 break;
 
             case FUNC_ROUND :
+                // A VoltDB extension to customize the SQL function set support
+                voltDisabled = DISABLED_IN_FUNCTIONCUSTOM_CONSTRUCTOR;
+                // fall through
+                // End of VoltDB extension
+            case FUNC_BITAND :
+            case FUNC_BITOR :
+            case FUNC_BITXOR :
+                // A VoltDB extension to customize the SQL function set support
+                parseList = doubleParamList;
+                break;
+                // End of VoltDB extension
             case FUNC_DIFFERENCE :
-            // A VoltDB extension to customize the SQL function set support
+                // A VoltDB extension to customize the SQL function set support
+                // Disable DIFFERENCE and DATEDIFF while enabling REPEAT and RIGHT
             case FUNC_DATEDIFF :
                 voltDisabled = DISABLED_IN_FUNCTIONCUSTOM_CONSTRUCTOR;
                 // fall through
-            case FUNC_BITAND :
-                parseList = doubleParamList;
-                break;
-            case FUNC_BITOR :
-                parseList = doubleParamList;
-                break;
-            case FUNC_BITXOR :
-                parseList = doubleParamList;
-                break;
+                // End of VoltDB extension
             case FUNC_REPEAT :
-            /* disable 2 lines ...
-            case FUNC_REPEAT :
+            // A VoltDB extension to customize the SQL function set support
+            /* disable 1 line ...
             case FUNC_DATEDIFF :
-            ... disabled 2 lines */
+            ... disabled 1 line */
             // End of VoltDB extension
             case FUNC_RIGHT :
                 parseList = doubleParamList;
@@ -1077,14 +1081,21 @@ public class FunctionCustom extends FunctionSQL {
                         return null;
                     }
                 }
-                /************************* Volt DB Extensions *************************/
+
                 if (nodes[0].dataType.isIntegralType()) {
+                    // A VoltDB extension: Hsqldb uses Integer type by default,
+                    // VoltDB supports BigInt instead
                     if (data[0] == null || data[1] == null)
                         return null;
-
                     long v = 0;
                     long a = ((Number) data[0]).longValue();
                     long b = ((Number) data[1]).longValue();
+                    /* disable 3 lines ...
+                    int v = 0;
+                    int a = ((Number) data[0]).intValue();
+                    int b = ((Number) data[0]).intValue();
+                   ... disabled 3 lines */
+                   // End of VoltDB extension
 
                     switch (funcType) {
 
@@ -1101,8 +1112,12 @@ public class FunctionCustom extends FunctionSQL {
                             break;
                     }
 
-                    return ValuePool.getLong(v);
-                    /**********************************************************************/
+                    // A VoltDB extension: Hsqldb uses Integer type by default,
+                    // VoltDB supports BigInt instead
+                    /* disable 1 line ...
+                    return ValuePool.getInt(v);
+                   ... disabled 1 line */
+                    // End of VoltDB extension
                 } else {
 
                     /** @todo - for binary */
@@ -1488,15 +1503,28 @@ public class FunctionCustom extends FunctionSQL {
 
                 break;
             }
-            // A VoltDB extension: Hsqldb uses Integer type by default,
-            // VoltDB wants to support BigInt instead
             case FUNC_BITAND :
             case FUNC_BITOR :
             case FUNC_BITXOR : {
+                // A VoltDB extension: Hsqldb uses Integer type by default,
+                // VoltDB supports BigInt instead
                 voltResolveToBigintTypesForBitwise();
+                /* disable 11 lines ...
+                for (int i = 0; i < nodes.length; i++) {
+                    if (nodes[i].dataType == null) {
+                        nodes[i].dataType = Type.SQL_INTEGER;
+                    } else if (nodes[i].dataType.typeCode
+                               != Types.SQL_INTEGER) {
+                        throw Error.error(ErrorCode.X_42561);
+                    }
+                }
+
+                dataType = Type.SQL_INTEGER;
+
+                ... disabled 11 lines */
+                // End of VoltDB extension
                 break;
             }
-            // End of VoltDB extension
             case FUNC_ASCII : {
                 if (nodes[0].dataType == null) {
                     nodes[0].dataType = Type.SQL_VARCHAR;
@@ -1745,12 +1773,11 @@ public class FunctionCustom extends FunctionSQL {
                 return super.getSQL();
         }
     }
-
-    /************************* Volt DB Extensions *************************/
+    // A VoltDB extension to customize the SQL function set support
 
     public static final String FUNC_CONCAT_ID_STRING = String.valueOf(FunctionCustom.FUNC_CONCAT);
 
     private static String DISABLED_IN_FUNCTIONCUSTOM_CONSTRUCTOR = "Custom Function";
     private static String DISABLED_IN_FUNCTIONCUSTOM_FACTORY_METHOD = "Custom Function Special Case";
-    /**********************************************************************/
+    // End of VoltDB extension
 }

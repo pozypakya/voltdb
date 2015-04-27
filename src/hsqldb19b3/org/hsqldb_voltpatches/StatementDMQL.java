@@ -44,9 +44,6 @@ import org.hsqldb_voltpatches.persist.HsqlDatabaseProperties;
 import org.hsqldb_voltpatches.result.Result;
 import org.hsqldb_voltpatches.result.ResultConstants;
 import org.hsqldb_voltpatches.result.ResultMetaData;
-/// We DO NOT reorganize imports in hsql code. And we try to keep these structured comment in place.
-import org.hsqldb_voltpatches.types.NumberType;
-// End of VoltDB extension
 
 /**
  * Statement implementation for DML and base DQL statements.
@@ -1303,7 +1300,7 @@ public abstract class StatementDMQL extends Statement {
             parameter.attributes.put("index", String.valueOf(index));
             ++index;
             parameter.attributes.put("id", expr.getUniqueId(session));
-            if (paramType == NumberType.SQL_NUMERIC_DEFAULT_INT) {
+            if (paramType == org.hsqldb_voltpatches.types.NumberType.SQL_NUMERIC_DEFAULT_INT) {
                 parameter.attributes.put("valuetype", "BIGINT");
             } else {
                 parameter.attributes.put("valuetype", Types.getTypeName(paramType.typeCode));

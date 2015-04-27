@@ -293,7 +293,7 @@ public class DatabaseManager {
             throw Error.runtimeError(ErrorCode.U_S0500,
                                      "DatabaseManager.getDatabaseObject");
         }
-           ... disabled 13 lines */
+        ... disabled 13 lines */
 
         assert (type == DatabaseURL.S_MEM);
         java.util.HashMap<String, Database> databaseMap = memDatabaseMap;
@@ -323,7 +323,7 @@ public class DatabaseManager {
             String path) {
 
         // A VoltDB extension to work around ENG-6044
-        /* disabled 14 lines ...
+        /* disable 14 lines ...
         Object  key = path;
         HashMap databaseMap;
 
@@ -338,7 +338,7 @@ public class DatabaseManager {
             throw (Error.runtimeError(
                 ErrorCode.U_S0500, "DatabaseManager.lookupDatabaseObject()"));
         }
-           ... disabled 14 lines */
+        ... disabled 14 lines */
 
         assert (type == DatabaseURL.S_MEM);
         java.util.HashMap<String, Database> databaseMap = memDatabaseMap;
@@ -358,7 +358,6 @@ public class DatabaseManager {
         // A VoltDB extension to work around ENG-6044
         /* disable 15 lines ...
         Object  key = path;
-
         HashMap databaseMap;
 
         if (type == DatabaseURL.S_FILE) {
@@ -392,16 +391,12 @@ public class DatabaseManager {
         String  type = database.getType();
         String  path = database.getPath();
         // A VoltDB extension to work around ENG-6044
-        /* disable 2 lines ...
+        /* disable 16 lines ...
         Object  key  = path;
         HashMap databaseMap;
-           ... disabled 2 lines */
-        // End of VoltDB extension
 
         notifyServers(database);
 
-        // A VoltDB extension to work around ENG-6044
-        /* disable 11 lines ...
         if (type == DatabaseURL.S_FILE) {
             databaseMap = fileDatabaseMap;
             key         = filePathToKey(path);
@@ -413,7 +408,7 @@ public class DatabaseManager {
             throw (Error.runtimeError(
                 ErrorCode.U_S0500, "DatabaseManager.lookupDatabaseObject()"));
         }
-           ... disabled 11 lines */
+        ... disabled 16 lines */
 
         assert(type == DatabaseURL.S_MEM);
         java.util.HashMap<String, Database> databaseMap = memDatabaseMap;
@@ -480,6 +475,8 @@ public class DatabaseManager {
      * Notifies all servers that serve the database that the database has been
      * shutdown.
      */
+    // A VoltDB extension to disable a package dependency
+    /* disable 18 lines ...
     private static void notifyServers(Database db) {
 
         Iterator it = serverMap.keySet().iterator();
@@ -489,15 +486,13 @@ public class DatabaseManager {
             HashSet databases = (HashSet) serverMap.get(server);
 
             if (databases.contains(db)) {
-// A VoltDB extension to disable a package dependency
-/* disable 2 lines ...
                 server.notify(ServerConstants.SC_DATABASE_SHUTDOWN,
                               db.databaseID);
-... disabled 2 lines */
-// End of VoltDB extension
             }
         }
     }
+    ... disabled 18 lines */
+    // End of VoltDB extension
 
     static boolean isServerDB(Database db) {
 
@@ -532,10 +527,9 @@ public class DatabaseManager {
             return path;
         }
     }
-
-    /************************* Volt DB Extensions *************************/
-    /** Minimal stub to locally resolve Server class references. */
+    // A VoltDB extension to disable a package dependency
+    // Minimal stub to locally resolve Server class references.
     private static class Server {
     }
-    /**********************************************************************/
+    // End of VoltDB extension
 }
