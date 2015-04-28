@@ -195,7 +195,7 @@ public class DataFileCache {
 
         fileFreePosition = 0;
 
-        database.logger.appLog.logContext(SimpleLog.LOG_NORMAL, "start");
+        ////database.logger.appLog.logContext(SimpleLog.LOG_NORMAL, "start");
 
         try {
             boolean preexists = database.isFilesInJar();

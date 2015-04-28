@@ -263,7 +263,6 @@ public class JDBCDriver implements Driver {
 //#endif JAVA6
     public static Connection getConnection(String url,
             Properties info) throws SQLException {
-
         final HsqlProperties props = DatabaseURL.parseURL(url, true, false);
 
         if (props == null) {
@@ -276,22 +275,23 @@ public class JDBCDriver implements Driver {
             return null;
         }
         props.addProperties(info);
-
         long timeout = DriverManager.getLoginTimeout();
+        assert (timeout == 0); ////
+        return new JDBCConnection(props); ////
+        /*////
 
         if (timeout == 0) {
 
             // no timeout restriction
             return new JDBCConnection(props);
         }
-
         String connType = props.getProperty("connection_type");
 
         if (DatabaseURL.isInProcessDatabaseType(connType)) {
             return new JDBCConnection(props);
         }
 
-        /** @todo:  Better: ThreadPool? HsqlTimer with callback? */
+        /** @todo:  Better: ThreadPool? HsqlTimer with callback? *--/ ////
         final JDBCConnection[] conn = new JDBCConnection[1];
         final SQLException[]   ex   = new SQLException[1];
         Thread                 t    = new Thread() {
@@ -335,8 +335,8 @@ public class JDBCDriver implements Driver {
         if (conn[0] != null) {
             return conn[0];
         }
-
         throw Util.sqlException(ErrorCode.X_08501);
+//// */
     }
 
     /**

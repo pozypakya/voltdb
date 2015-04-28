@@ -535,5 +535,12 @@ public class DatabaseManager {
     /** Minimal stub to locally resolve Server class references. */
     private static class Server {
     }
+
+    public static void voltRegisterDatabase(Database db) {
+        db.databaseID = dbIDCounter;
+        databaseIDMap.put(DatabaseManager.dbIDCounter, db);
+        dbIDCounter++;
+        memDatabaseMap.put(db.getPath(), db);
+    }
     /**********************************************************************/
 }

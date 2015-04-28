@@ -75,7 +75,7 @@ import org.hsqldb_voltpatches.lib.FileUtil;
 import org.hsqldb_voltpatches.lib.HsqlArrayList;
 import org.hsqldb_voltpatches.persist.HsqlDatabaseProperties;
 import org.hsqldb_voltpatches.persist.HsqlProperties;
-import org.hsqldb_voltpatches.persist.LobManager;
+////import org.hsqldb_voltpatches.persist.LobManager;
 import org.hsqldb_voltpatches.persist.Logger;
 import org.hsqldb_voltpatches.persist.PersistentStoreCollectionDatabase;
 import org.hsqldb_voltpatches.result.Result;
@@ -178,7 +178,7 @@ public class Database {
     public PersistentStoreCollectionDatabase persistentStoreCollection;
 
     //
-    public LobManager lobManager;
+    ////public LobManager lobManager;
     public Collation  collation;
 
     //
@@ -219,7 +219,7 @@ public class Database {
 
 // oj@openoffice.org - changed to file access api
         String fileaccess_class_name =
-            (String) urlProperties.getProperty("fileaccess_class_name");
+            urlProperties.getProperty("fileaccess_class_name");
 
         if (fileaccess_class_name != null) {
             String storagekey = urlProperties.getProperty("storage_key");
@@ -250,7 +250,7 @@ public class Database {
                 "false").equals("true");
         logger                   = new Logger();
         compiledStatementManager = new StatementManager(this);
-        lobManager               = new LobManager(this);
+        ////lobManager               = new LobManager(this);
     }
 
     /**
@@ -311,6 +311,7 @@ public class Database {
                 schemaManager.createPublicSchema();
             }
 
+/* ////
             lobManager.createSchema();
 
             if (DatabaseURL.isFileBasedDatabaseType(databaseType)) {
@@ -326,6 +327,7 @@ public class Database {
                     schemaManager.setDefaultSchemaHsqlName(name);
                 }
             }
+//// */
 
             if (isNew) {
                 String tableType = urlProperties.getProperty(
@@ -354,6 +356,7 @@ public class Database {
                 logger.writeToLog(
                     session, "SET DATABASE DEFAULT INITIAL SCHEMA PUBLIC");
 
+/* ////
                 if (schemaManager.getDefaultTableType()
                         == Table.CACHED_TABLE) {
                     logger.writeToLog(
@@ -361,10 +364,11 @@ public class Database {
                 }
 
                 lobManager.initialiseLobSpace();
+//// */
                 logger.synchLogForce();
             }
 
-            lobManager.open();
+            ////lobManager.open();
             dbInfo.setWithContent(true);
         } catch (Throwable e) {
             logger.closeLog(Database.CLOSEMODE_IMMEDIATELY);
@@ -556,6 +560,7 @@ public class Database {
      *  Called by the garbage collector on this Databases object when garbage
      *  collection determines that there are no more references to it.
      */
+    @Override
     protected void finalize() {
 
         if (getState() != DATABASE_ONLINE) {
@@ -612,7 +617,7 @@ public class Database {
          * should be investigated for the CLOSEMODE_COMPACT mode
          */
         logger.closeLog(closemode);
-        lobManager.close();
+        ////lobManager.close();
 
         try {
             if (closemode == CLOSEMODE_COMPACT) {

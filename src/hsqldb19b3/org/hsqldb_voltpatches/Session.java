@@ -1667,7 +1667,7 @@ public class Session implements SessionInterface {
     // lobs
     public BlobDataID createBlob(long length) {
 
-        long lobID = database.lobManager.createBlob(length);
+        long lobID = 0;////database.lobManager.createBlob(length);
 
         if (lobID == 0) {
             throw Error.error(ErrorCode.X_0F502);
@@ -1680,7 +1680,7 @@ public class Session implements SessionInterface {
 
     public ClobDataID createClob(long length) {
 
-        long lobID = database.lobManager.createClob(length);
+        long lobID = 0;////database.lobManager.createClob(length);
 
         if (lobID == 0) {
             throw Error.error(ErrorCode.X_0F502);
@@ -1700,6 +1700,8 @@ public class Session implements SessionInterface {
     }
 
     Result performLOBOperation(ResultLob cmd) {
+        throw Error.runtimeError(ErrorCode.U_S0500, "Session.performLOBOperation");
+        /*////
 
         long id        = cmd.getLobID();
         int  operation = cmd.getSubType();
@@ -1741,6 +1743,7 @@ public class Session implements SessionInterface {
                 throw Error.runtimeError(ErrorCode.U_S0500, "Session");
             }
         }
+////*/
     }
 
     // DatabaseMetaData.getURL should work as specified for
