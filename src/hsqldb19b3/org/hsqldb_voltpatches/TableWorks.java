@@ -1173,7 +1173,7 @@ public class TableWorks {
      * @param predicate Expression
      * @return new index
      */
-    Index addExprIndex(int[] col, Expression[] indexExprs, HsqlName name, boolean unique, Expression predicate) {
+    Index addExprIndex(int[] col, Expression[] indexExprs, HsqlName name, boolean unique) {
 
         Index newindex;
 
@@ -1198,10 +1198,6 @@ public class TableWorks {
 
         database.schemaManager.addSchemaObject(newindex);
         database.schemaManager.recompileDependentObjects(table);
-
-        if (predicate != null) {
-            newindex = newindex.withPredicate(predicate);
-        }
 
         return newindex;
     } /* addExprIndex */

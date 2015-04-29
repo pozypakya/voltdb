@@ -1114,6 +1114,7 @@ public class FunctionCustom extends FunctionSQL {
 
                     // A VoltDB extension: Hsqldb uses Integer type by default,
                     // VoltDB supports BigInt instead
+                    return ValuePool.getLong(v);
                     /* disable 1 line ...
                     return ValuePool.getInt(v);
                    ... disabled 1 line */

@@ -76,7 +76,7 @@ public class TestJDBCResultSet {
         try {
             // HSQL setup
             Class.forName("org.hsqldb_voltpatches.jdbcDriver");
-            HsqlConn = DriverManager.getConnection("jdbc:hsqldb:mem:temptest",
+            HsqlConn = DriverManager.getConnection("jdbc:hsqldb_voltpatches:mem:temptest",
                     "sa", "");
             Statement hsqlStmt = null;
 
