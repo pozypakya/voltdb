@@ -69,7 +69,7 @@ package org.hsqldb_voltpatches;
 import java.lang.reflect.Constructor;
 
 import org.hsqldb_voltpatches.HsqlNameManager.HsqlName;
-import org.hsqldb_voltpatches.dbinfo.DatabaseInformation;
+////import org.hsqldb_voltpatches.dbinfo.DatabaseInformation;
 import org.hsqldb_voltpatches.lib.FileAccess;
 import org.hsqldb_voltpatches.lib.FileUtil;
 import org.hsqldb_voltpatches.lib.HsqlArrayList;
@@ -135,7 +135,7 @@ public class Database {
 // loosecannon1@users 1.7.2 patch properties on the JDBC URL
     private HsqlProperties urlProperties;
     private String         sPath;
-    DatabaseInformation    dbInfo;
+    ////DatabaseInformation    dbInfo;
 
     /** indicates the state of the database */
     private int   dbState;
@@ -300,7 +300,7 @@ public class Database {
             sessionManager        = new SessionManager(this);
             txManager             = new TransactionManager(this);
             collation             = collation.getDefaultInstance();
-            dbInfo = DatabaseInformation.newDatabaseInformation(this);
+            ////dbInfo = DatabaseInformation.newDatabaseInformation(this);
 
             databaseProperties.setDatabaseVariables();
 
@@ -369,7 +369,7 @@ public class Database {
             }
 
             ////lobManager.open();
-            dbInfo.setWithContent(true);
+            ////dbInfo.setWithContent(true);
         } catch (Throwable e) {
             logger.closeLog(Database.CLOSEMODE_IMMEDIATELY);
             logger.releaseLock();
@@ -401,7 +401,7 @@ public class Database {
         nameManager    = null;
         schemaManager  = null;
         sessionManager = null;
-        dbInfo         = null;
+        ////dbInfo         = null;
     }
 
     /**
@@ -666,9 +666,9 @@ public class Database {
      */
     public void setMetaDirty(boolean resetPrepared) {
 
-        if (dbInfo != null) {
-            dbInfo.setDirty();
-        }
+        ////if (dbInfo != null) {
+        ////    dbInfo.setDirty();
+        ////}
 
         if (resetPrepared) {
             compiledStatementManager.resetStatements();

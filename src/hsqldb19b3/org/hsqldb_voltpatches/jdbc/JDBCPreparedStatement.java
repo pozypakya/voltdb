@@ -4307,14 +4307,4 @@ public class JDBCPreparedStatement extends JDBCStatementBase implements Prepared
     /** Is part of a Result. */
     protected final boolean isResult;
 
-    /************************* Volt DB Extensions *************************/
-
-    public void closeOnCompletion() throws SQLException {
-        throw new SQLException();
-    }
-
-    public boolean isCloseOnCompletion() throws SQLException {
-        throw new SQLException();
-    }
-    /**********************************************************************/
 }

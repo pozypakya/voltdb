@@ -1806,14 +1806,4 @@ public class JDBCStatement extends JDBCStatementBase implements Statement {
         }
     }
 
-    /************************* Volt DB Extensions *************************/
-
-    public void closeOnCompletion() throws SQLException {
-        throw new SQLException();
-    }
-
-    public boolean isCloseOnCompletion() throws SQLException {
-        throw new SQLException();
-    }
-    /**********************************************************************/
 }
