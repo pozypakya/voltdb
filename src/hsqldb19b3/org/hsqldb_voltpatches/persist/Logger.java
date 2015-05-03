@@ -82,7 +82,9 @@ public class Logger {
      *  The LockFile object this Logger uses to cooperatively lock
      *  the database files
      */
+    /* ////
     private LockFile lockFile;
+    //// */
     boolean          needsCheckpoint;
     private boolean  logsStatements;
     private boolean  logStatements;
@@ -446,16 +448,18 @@ public class Logger {
      * Attempts to aquire a cooperative lock condition on the database files
      */
     public void acquireLock(String path) {
-
+        /* ////
         if (lockFile != null) {
             return;
         }
 
         lockFile = LockFile.newLockFileLock(path);
+        //// */
     }
 
     public void releaseLock() {
 
+        /* ////
         try {
             if (lockFile != null) {
                 lockFile.tryRelease();
@@ -463,6 +467,7 @@ public class Logger {
         } catch (Exception e) {}
 
         lockFile = null;
+        //// */
     }
 
     public PersistentStore newStore(Session session,

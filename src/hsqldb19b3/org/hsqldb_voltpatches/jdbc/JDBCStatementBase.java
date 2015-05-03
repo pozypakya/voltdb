@@ -281,4 +281,14 @@ class JDBCStatementBase {
     static final int RETURN_GENERATED_KEYS = 1;
     static final int NO_GENERATED_KEYS = 2;
 
+    // A VoltDB extension to comply with JDBC(?) (v4?)
+
+    public void closeOnCompletion() throws SQLException {
+        throw new SQLException();
+    }
+
+    public boolean isCloseOnCompletion() throws SQLException {
+        throw new SQLException();
+    }
+    // End of VoltDB extension
 }
