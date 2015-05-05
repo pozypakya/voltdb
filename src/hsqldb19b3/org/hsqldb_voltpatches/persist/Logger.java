@@ -425,7 +425,6 @@ public class Logger {
                                        boolean reversed) {
         return log.openTextCache(table, source, readOnlyData, reversed);
     }
-    ////  */
 
     /**
      *  Closes the TextCache object.
@@ -433,6 +432,7 @@ public class Logger {
     public void closeTextCache(Table table) {
         log.closeTextCache(table);
     }
+    ////  */
 
     public boolean needsCheckpoint() {
         return needsCheckpoint;
