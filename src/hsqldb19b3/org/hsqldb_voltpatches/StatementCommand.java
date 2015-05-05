@@ -250,7 +250,6 @@ public class StatementCommand extends Statement {
                     return Result.newErrorResult(e, sql);
                 }
             }
-            //// */
             case StatementTypes.SET_DATABASE_FILES_BACKUP_INCREMENT : {
                 try {
                     boolean mode = ((Boolean) parameters[0]).booleanValue();
@@ -338,6 +337,7 @@ public class StatementCommand extends Statement {
                     return Result.newErrorResult(e, sql);
                 }
             }
+            //// */
             case StatementTypes.SET_DATABASE_SQL_COLLATION : {
                 try {
                     String name = (String) parameters[0];
@@ -544,6 +544,7 @@ public class StatementCommand extends Statement {
                     return Result.newErrorResult(e, sql);
                 }
             }
+            /*  ////
             case StatementTypes.SET_TABLE_SOURCE : {
                 try {
                     HsqlName name = (HsqlName) parameters[0];
@@ -595,13 +596,14 @@ public class StatementCommand extends Statement {
                             || session.isProcessingScript()) {
                         session.addWarning((HsqlException) e);
 
-                        //* @todo - add an entry to applog too */
+                        //* @todo - add an entry to applog too *-/
                         return Result.updateZeroResult;
                     } else {
                         return Result.newErrorResult(e, sql);
                     }
                 }
             }
+            //// */
             case StatementTypes.SET_TABLE_TYPE : {
                 try {
                     HsqlName name = (HsqlName) parameters[0];

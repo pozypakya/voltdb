@@ -237,7 +237,7 @@ public class Session implements SessionInterface {
 
         sessionData.closeAllNavigators();
         sessionData.persistentStoreCollection.clearAllTables();
-        sessionData.closeResultCache();
+        ////sessionData.closeResultCache();
         ////database.compiledStatementManager.removeSession(sessionId);
         database.sessionManager.removeSession(this);
         database.closeIfLast();

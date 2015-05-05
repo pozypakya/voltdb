@@ -187,7 +187,7 @@ public class Log {
                 deleteNewAndOldFiles();
                 restoreBackup();
                 processScript();
-                processDataFile();
+                ////processDataFile();
                 processLog();
                 close(false);
 
@@ -222,17 +222,17 @@ public class Log {
                  */
                 processScript();
 
-                if (isAnyCacheModified()) {
-                    properties.setDBModified(
-                        HsqlDatabaseProperties.FILES_MODIFIED);
-                    close(false);
-
-                    if (cache != null) {
-                        cache.open(filesReadOnly);
-                    }
-
-                    reopenAllTextCaches();
-                }
+//                if (isAnyCacheModified()) {
+//                    properties.setDBModified(
+//                        HsqlDatabaseProperties.FILES_MODIFIED);
+//                    close(false);
+//
+//                    if (cache != null) {
+//                        cache.open(filesReadOnly);
+//                    }
+//
+//                    reopenAllTextCaches();
+//                }
                 break;
         }
 
@@ -366,6 +366,7 @@ public class Log {
     /**
      * Checks all the caches and returns true if the modified flag is set for any
      */
+    /*  ////
     boolean isAnyCacheModified() {
 
         if (cache != null && cache.isFileModified()) {
@@ -374,6 +375,7 @@ public class Log {
 
         return isAnyTextCacheModified();
     }
+    ////  */
 
     /**
      * Performs checkpoint including pre and post operations. Returns to the
@@ -389,30 +391,30 @@ public class Log {
         deleteNewAndOldFiles();
         writeScript(false);
 
-        if (cache != null) {
-            if (forceDefrag()) {
-                defrag = true;
-            }
-
-            if (defrag) {
-                try {
-                    cache.defrag();
-                } catch (Exception e) {}
-            } else {
-                cache.close(true);
-
-                try {
-                    cache.backupFile();
-                } catch (Exception e1) {
-                    deleteNewBackup();
-                    cache.open(false);
-
-                    return;
-                }
-
-                cache.open(false);
-            }
-        }
+//        if (cache != null) {
+//            if (forceDefrag()) {
+//                defrag = true;
+//            }
+//
+//            if (defrag) {
+//                try {
+//                    cache.defrag();
+//                } catch (Exception e) {}
+//            } else {
+//                cache.close(true);
+//
+//                try {
+//                    cache.backupFile();
+//                } catch (Exception e1) {
+//                    deleteNewBackup();
+//                    cache.open(false);
+//
+//                    return;
+//                }
+//
+//                cache.open(false);
+//            }
+//        }
 
         properties.setDBModified(HsqlDatabaseProperties.FILES_NEW);
         closeLog();
@@ -466,23 +468,23 @@ public class Log {
         }
 
         if (cache != null) {
-            try {
-                cache.close(true);
-                cache.backupFile();
-            } catch (Exception e) {
-
-                // backup failed perhaps due to lack of disk space
-                deleteNewScript();
-                deleteNewBackup();
-
-                try {
-                    if (!cache.isFileOpen()) {
-                        cache.open(false);
-                    }
-                } catch (Exception e1) {}
-
-                return false;
-            }
+//            try {
+//                cache.close(true);
+//                cache.backupFile();
+//            } catch (Exception e) {
+//
+//                // backup failed perhaps due to lack of disk space
+//                deleteNewScript();
+//                deleteNewBackup();
+//
+//                try {
+//                    if (!cache.isFileOpen()) {
+//                        cache.open(false);
+//                    }
+//                } catch (Exception e1) {}
+//
+//                return false;
+//            }
         }
 
         try {
@@ -528,15 +530,15 @@ public class Log {
     /**
      * Returns true if lost space is above the threshold
      */
-    boolean forceDefrag() {
-
-        long megas = properties.getIntegerProperty(
-            HsqlDatabaseProperties.hsqldb_defrag_limit, 200);
-        long defraglimit = megas * 1024L * 1024;
-        long lostSize    = cache.freeBlocks.getLostBlocksSize();
-
-        return lostSize > defraglimit;
-    }
+////    boolean forceDefrag() {
+////
+////        long megas = properties.getIntegerProperty(
+////            HsqlDatabaseProperties.hsqldb_defrag_limit, 200);
+////        long defraglimit = megas * 1024L * 1024;
+////        long lostSize    = cache.freeBlocks.getLostBlocksSize();
+////
+////        return lostSize > defraglimit;
+////    }
 
     /**
      *
@@ -548,21 +550,21 @@ public class Log {
     /**
      * Responsible for creating the cache instance.
      */
-    DataFileCache getCache() {
-
-/*
-        if (database.isFilesInJar()) {
-            return null;
-        }
-*/
-        if (cache == null) {
-            cache = new DataFileCache(database, fileName);
-
-            cache.open(filesReadOnly);
-        }
-
-        return cache;
-    }
+//    DataFileCache getCache() {
+//
+///*
+//        if (database.isFilesInJar()) {
+//            return null;
+//        }
+//*/
+//        if (cache == null) {
+//            cache = new DataFileCache(database, fileName);
+//
+//            cache.open(filesReadOnly);
+//        }
+//
+//        return cache;
+//    }
 
     int getLogSize() {
         return (int) (maxLogSize / (1024 * 1024));
@@ -621,6 +623,7 @@ public class Log {
         }
     }
 
+    /*  ////
     public void setIncrementalBackup(boolean val) {
 
         if (incBackup == val) {
@@ -642,6 +645,7 @@ public class Log {
 
         database.logger.needsCheckpoint = true;
     }
+    ////  */
 
     /**
      * Various writeXXX() methods are used for logging statements.
@@ -810,27 +814,27 @@ public class Log {
     /**
      * Defrag large data files when the sum of .log and .data files is large.
      */
-    private void processDataFile() {
-
-        // OOo related code
-        if (database.isStoredFileAccess()) {
-            return;
-        }
-
-        // OOo end
-        if (cache == null || filesReadOnly
-                || !fa.isStreamElement(logFileName)) {
-            return;
-        }
-
-        File file       = new File(logFileName);
-        long logLength  = file.length();
-        long dataLength = cache.getFileFreePos();
-
-        if (logLength + dataLength > cache.maxDataFileSize) {
-            database.logger.needsCheckpoint = true;
-        }
-    }
+//    private void processDataFile() {
+//
+//        // OOo related code
+//        if (database.isStoredFileAccess()) {
+//            return;
+//        }
+//
+//        // OOo end
+//        if (cache == null || filesReadOnly
+//                || !fa.isStreamElement(logFileName)) {
+//            return;
+//        }
+//
+//        File file       = new File(logFileName);
+//        long logLength  = file.length();
+//        long dataLength = cache.getFileFreePos();
+//
+//        if (logLength + dataLength > cache.maxDataFileSize) {
+//            database.logger.needsCheckpoint = true;
+//        }
+//    }
 
     /**
      * Performs all the commands in the .log file.
@@ -847,6 +851,7 @@ public class Log {
      * Restores a compressed backup or the .data file.
      */
     private void restoreBackup() {
+        /*  ////
 
         if (incBackup) {
             restoreBackupIncremental();
@@ -867,11 +872,13 @@ public class Log {
                 fileName + ".backup", e.toString()
             });
         }
+        //// */
     }
 
     /**
      * Restores in from an incremental backup
-     */
+     *-/
+    /*  ////
     private void restoreBackupIncremental() {
 
         try {
@@ -890,7 +897,7 @@ public class Log {
                         FileUtil.delete(cacheFileName);
                     }
                 }
-*/
+*-/
             }
 
             deleteBackup();
@@ -898,8 +905,10 @@ public class Log {
             throw Error.error(ErrorCode.FILE_IO_ERROR, fileName + ".backup");
         }
     }
-
+    //// */
+    
 // fredt@users 20020221 - patch 513005 by sqlbob@users (RMP) - text tables
+    /* ////
     private HashMap textCacheList = new HashMap();
 
     DataFileCache openTextCache(Table table, String source,
@@ -939,8 +948,10 @@ public class Log {
 
         return c;
     }
+    //// */
 
     void closeTextCache(Table table) {
+        /* ////
 
         TextCache c = (TextCache) textCacheList.remove(table.getName());
 
@@ -949,10 +960,12 @@ public class Log {
                 c.close(true);
             } catch (HsqlException e) {}
         }
+        //// */
     }
 
     private void closeAllTextCaches(boolean compact) {
 
+        /* ////
         Iterator it = textCacheList.values().iterator();
 
         while (it.hasNext()) {
@@ -962,17 +975,21 @@ public class Log {
                 ((TextCache) it.next()).close(true);
             }
         }
+        //// */
     }
 
     private void reopenAllTextCaches() {
 
+        /* ////
         Iterator it = textCacheList.values().iterator();
 
         while (it.hasNext()) {
             ((TextCache) it.next()).reopen();
         }
+        //// */
     }
 
+    /* ////
     private boolean isAnyTextCacheModified() {
 
         Iterator it = textCacheList.values().iterator();
@@ -984,5 +1001,20 @@ public class Log {
         }
 
         return false;
+    }
+    //// */
+    
+    private class DataFileCache {
+
+        public boolean fileModified;
+        public boolean incBackup;
+        public void open(boolean filesReadOnly) {
+            // TODO Auto-generated method stub
+            
+        }
+        public void close(boolean b) {
+            // TODO Auto-generated method stub
+            
+        }
     }
 }

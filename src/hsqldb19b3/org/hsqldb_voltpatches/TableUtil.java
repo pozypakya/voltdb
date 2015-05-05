@@ -47,16 +47,19 @@ public class TableUtil {
     static Table newTable(Database database, int type,
                           HsqlName tableHsqlName) {
 
+        /* ////
         switch (type) {
-
             case TableBase.TEMP_TEXT_TABLE :
             case TableBase.TEXT_TABLE : {
                 return new TextTable(database, tableHsqlName, type);
             }
             default : {
+        //// */
                 return new Table(database, tableHsqlName, type);
+        /*  ////
             }
         }
+        //// */
     }
 
     static TableDerived newSubqueryTable(Database database,

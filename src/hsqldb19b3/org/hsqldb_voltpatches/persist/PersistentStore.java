@@ -101,9 +101,9 @@ public interface PersistentStore {
     RowIterator rowIterator();
 
     //
-    DataFileCache getCache();
+    ////DataFileCache getCache();
 
-    void setCache(DataFileCache cache);
+    ////void setCache(DataFileCache cache);
 
     void release();
 

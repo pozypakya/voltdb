@@ -45,7 +45,7 @@ import org.hsqldb_voltpatches.lib.OrderedHashSet;
 import org.hsqldb_voltpatches.lib.ReaderInputStream;
 import org.hsqldb_voltpatches.navigator.RowSetNavigator;
 import org.hsqldb_voltpatches.navigator.RowSetNavigatorClient;
-import org.hsqldb_voltpatches.persist.DataFileCacheSession;
+////import org.hsqldb_voltpatches.persist.DataFileCacheSession;
 import org.hsqldb_voltpatches.persist.PersistentStore;
 import org.hsqldb_voltpatches.persist.PersistentStoreCollectionSession;
 import org.hsqldb_voltpatches.result.Result;
@@ -69,7 +69,7 @@ public class SessionData {
 
     // large results
     LongKeyHashMap       resultMap;
-    DataFileCacheSession resultCache;
+    ////DataFileCacheSession resultCache;
 
     // VALUE
     Object currentValue;
@@ -281,40 +281,40 @@ public class SessionData {
         resultMap.clear();
     }
 
-    public DataFileCacheSession getResultCache() {
+    ////public DataFileCacheSession getResultCache() {
 
-        if (resultCache == null) {
-            String path = database.getTempDirectoryPath();
+  ////    if (resultCache == null) {
+  ////        String path = database.getTempDirectoryPath();
 
-            if (path == null) {
-                return null;
-            }
+  ////      if (path == null) {
+  ////          return null;
+  ////      }
 
-            try {
-                resultCache =
-                    new DataFileCacheSession(database,
-                                             path + "/session_"
-                                             + Long.toString(session.getId()));
+  ////      try {
+  ////          resultCache =
+  ////              new DataFileCacheSession(database,
+  ////                                       path + "/session_"
+  ////                                       + Long.toString(session.getId()));
 
-                resultCache.open(false);
-            } catch (Throwable t) {
-                return null;
-            }
-        }
+  ////          resultCache.open(false);
+  ////      } catch (Throwable t) {
+  ////          return null;
+  ////      }
+  ////  }
 
-        return resultCache;
-    }
+  ////  return resultCache;
+  ////}
 
-    synchronized void closeResultCache() {
+  ////  synchronized void closeResultCache() {
 
-        if (resultCache != null) {
-            try {
-                resultCache.close(false);
-            } catch (HsqlException e) {}
+  ////  if (resultCache != null) {
+  ////      try {
+  ////          resultCache.close(false);
+  ////      } catch (HsqlException e) {}
 
-            resultCache = null;
-        }
-    }
+  ////      resultCache = null;
+  ////  }
+  ////}
 
     // lobs in results
     LongKeyLongValueHashMap resultLobs = new LongKeyLongValueHashMap();

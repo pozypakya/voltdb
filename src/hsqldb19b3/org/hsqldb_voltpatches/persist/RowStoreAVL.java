@@ -84,9 +84,9 @@ public abstract class RowStoreAVL implements PersistentStore {
 
     public abstract void commitPersistence(CachedObject object);
 
-    public abstract DataFileCache getCache();
+    ////public abstract DataFileCache getCache();
 
-    public abstract void setCache(DataFileCache cache);
+    ////public abstract void setCache(DataFileCache cache);
 
     public abstract void release();
 

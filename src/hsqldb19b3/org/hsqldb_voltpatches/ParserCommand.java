@@ -643,6 +643,7 @@ public class ParserCommand extends ParserDDL {
                     default : {
                         throw unexpectedToken();
                     }
+                    /*  ////
                     case Tokens.SOURCE :
                         read();
 
@@ -679,6 +680,7 @@ public class ParserCommand extends ParserDDL {
                             StatementTypes.SET_TABLE_READONLY, args, null,
                             t.getName());
                     }
+                    //// */
                     case Tokens.INDEX : {
                         String value;
 

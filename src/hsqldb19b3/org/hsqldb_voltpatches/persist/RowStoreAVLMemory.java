@@ -139,11 +139,11 @@ public class RowStoreAVLMemory extends RowStoreAVL implements PersistentStore {
 
     public void commitPersistence(CachedObject row) {}
 
-    public DataFileCache getCache() {
-        return null;
-    }
+    ////public DataFileCache getCache() {
+    ////    return null;
+    ////}
 
-    public void setCache(DataFileCache cache) {}
+    ////public void setCache(DataFileCache cache) {}
 
     public void release() {
         ArrayUtil.fillArray(accessorList, null);

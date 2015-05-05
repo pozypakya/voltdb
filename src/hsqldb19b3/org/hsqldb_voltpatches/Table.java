@@ -366,6 +366,7 @@ public class Table extends TableBase implements SchemaObject {
 
         list.add(getSQL());
 
+        /*  ////
         // readonly for TEXT tables only
         if (isText()) {
             if (((TextTable) this).isConnected() && isDataReadOnly()) {
@@ -393,7 +394,7 @@ public class Table extends TableBase implements SchemaObject {
                 list.add(header);
             }
         }
-
+        ////  */
         if (!isTemp && hasIdentityColumn()) {
             list.add(NumberSequence.getRestartSQL(this));
         }

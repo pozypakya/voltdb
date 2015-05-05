@@ -217,14 +217,14 @@ public class Logger {
     /**
      *  Returns the Cache object or null if one doesn't exist.
      */
-    public DataFileCache getCache() {
+    ////public DataFileCache getCache() {
 
-        if (log == null) {
-            return null;
-        } else {
-            return log.getCache();
-        }
-    }
+        ////if (log == null) {
+            ////return null;
+////        } else {
+    ////        return log.getCache();
+        ////}
+    ////}
 
     /**
      *  Returns the Cache object or null if one doesn't exist.
@@ -409,6 +409,7 @@ public class Logger {
                            : 0;
     }
 
+    /*  ////
     public synchronized void setIncrementalBackup(boolean val) {
 
         if (log != null) {
@@ -418,12 +419,13 @@ public class Logger {
 
     /**
      *  Opens the TextCache object.
-     */
+     *-/
     public DataFileCache openTextCache(Table table, String source,
                                        boolean readOnlyData,
                                        boolean reversed) {
         return log.openTextCache(table, source, readOnlyData, reversed);
     }
+    ////  */
 
     /**
      *  Closes the TextCache object.
@@ -476,19 +478,21 @@ public class Logger {
 
         switch (table.getTableType()) {
 
-            case TableBase.CACHED_TABLE :
-                DataFileCache cache = getCache();
+            ////case TableBase.CACHED_TABLE :
+            ////    DataFileCache cache = getCache();
 
-                if (cache == null) {
-                    break;
-                }
+            ////    if (cache == null) {
+            ////        break;
+            ////    }
 
-                return new RowStoreAVLDisk(collection, cache, (Table) table);
+            ////    return new RowStoreAVLDisk(collection, cache, (Table) table);
+            case TableBase.TEMP_TABLE : //// +++
 
             case TableBase.MEMORY_TABLE :
             case TableBase.SYSTEM_TABLE :
                 return new RowStoreAVLMemory(collection, (Table) table);
 
+            /*  ////
             case TableBase.TEXT_TABLE :
                 return new RowStoreAVLDiskData(collection, (Table) table);
 
@@ -518,6 +522,7 @@ public class Logger {
                         return new RowStoreAVLHybrid(session, collection,
                                                      table, diskBased);
                 }
+            ////  */
         }
 
         throw Error.runtimeError(ErrorCode.U_S0500, "PSCS");
