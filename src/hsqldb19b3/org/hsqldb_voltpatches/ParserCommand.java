@@ -157,6 +157,7 @@ public class ParserCommand extends ParserDDL {
                 break;
             }
 
+            /*  ////
             // PROCEDURE
             case Tokens.CALL : {
                 cs = compileCallStatement(
@@ -164,6 +165,7 @@ public class ParserCommand extends ParserDDL {
 
                 break;
             }
+            ////  */
 
             // SQL SESSION
             case Tokens.SET :
@@ -238,6 +240,7 @@ public class ParserCommand extends ParserDDL {
                 cs = compileCheckpoint();
                 break;
 
+                /*  ////
             case Tokens.EXPLAIN :
                 cs = compileExplainPlan();
                 break;
@@ -245,6 +248,7 @@ public class ParserCommand extends ParserDDL {
             case Tokens.DECLARE :
                 cs = compileSessionVariableDeclaration();
                 break;
+                ////  */
 
             default :
                 throw unexpectedToken();
@@ -261,6 +265,7 @@ public class ParserCommand extends ParserDDL {
         return cs;
     }
 
+    /*  ////
     private Statement compileSessionVariableDeclaration() {
 
         ColumnSchema variable = readLocalVariableDeclarationOrNull();
@@ -270,6 +275,7 @@ public class ParserCommand extends ParserDDL {
 
         return cs;
     }
+    ////  */
 
     private Statement compileScript() {
 

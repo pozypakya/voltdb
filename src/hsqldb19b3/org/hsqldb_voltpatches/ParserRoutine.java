@@ -230,6 +230,7 @@ public class ParserRoutine extends ParserDML {
         }
     }
 
+    /*////
     // SQL-invoked routine
     StatementSchema compileCreateProcedureOrFunction() {
 
@@ -543,6 +544,7 @@ public class ParserRoutine extends ParserDML {
             }
         }
     }
+    //// */
 
 /*
     <SQL control statement> ::=
@@ -562,6 +564,7 @@ public class ParserRoutine extends ParserDML {
 
 
 */
+    /*  ////
     private Object[] readLocalDeclarationList(Routine routine,
             StatementCompound context) {
 
@@ -735,6 +738,7 @@ public class ParserRoutine extends ParserDML {
 
         return handler;
     }
+    //// */
 
     String parseSQLStateValue() {
 
@@ -752,6 +756,7 @@ public class ParserRoutine extends ParserDML {
         return sqlState;
     }
 
+    /*  ////
     private Statement readCompoundStatement(Routine routine,
             StatementCompound context, HsqlName label) {
 
@@ -1509,4 +1514,5 @@ public class ParserRoutine extends ParserDML {
 
         return column;
     }
+    //// */
 }

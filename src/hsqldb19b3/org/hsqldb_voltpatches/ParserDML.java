@@ -959,7 +959,7 @@ public class ParserDML extends ParserDQL {
     /**
      * Retrieves a CALL Statement from this parse context.
      */
-
+    /* ////
     // to do call argument name and type resolution
     StatementDMQL compileCallStatement(RangeVariable[] outerRanges,
                                        boolean isStrictlyProcedure) {
@@ -1062,7 +1062,7 @@ public class ParserDML extends ParserDQL {
 
         return cs;
     }
-
+    //// */
     /************************* Volt DB Extensions *************************/
 
     /**

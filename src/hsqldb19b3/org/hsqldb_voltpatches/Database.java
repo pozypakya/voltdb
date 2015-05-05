@@ -169,7 +169,7 @@ public class Database {
     // session related objects
     public SessionManager     sessionManager;
     public TransactionManager txManager;
-    public StatementManager   compiledStatementManager;
+    ////public StatementManager   compiledStatementManager;
 
     // schema objects
     public SchemaManager schemaManager;
@@ -249,7 +249,7 @@ public class Database {
         shutdownOnNoConnection = urlProperties.getProperty("shutdown",
                 "false").equals("true");
         logger                   = new Logger();
-        compiledStatementManager = new StatementManager(this);
+        ////compiledStatementManager = new StatementManager(this);
         ////lobManager               = new LobManager(this);
     }
 
@@ -288,7 +288,7 @@ public class Database {
 
             databaseProperties.load();
             databaseProperties.setURLProperties(urlProperties);
-            compiledStatementManager.reset();
+            ////compiledStatementManager.reset();
 
             nameManager    = new HsqlNameManager(this);
             granteeManager = new GranteeManager(this);
@@ -304,6 +304,7 @@ public class Database {
 
             databaseProperties.setDatabaseVariables();
 
+            /* ////
             String version = databaseProperties.getProperty(
                 HsqlDatabaseProperties.db_version);
 
@@ -311,7 +312,6 @@ public class Database {
                 schemaManager.createPublicSchema();
             }
 
-/* ////
             lobManager.createSchema();
 
             if (DatabaseURL.isFileBasedDatabaseType(databaseType)) {
@@ -665,7 +665,7 @@ public class Database {
      * @param  resetPrepared If true, reset all prepared statements.
      */
     public void setMetaDirty(boolean resetPrepared) {
-
+/* ////
         ////if (dbInfo != null) {
         ////    dbInfo.setDirty();
         ////}
@@ -673,6 +673,7 @@ public class Database {
         if (resetPrepared) {
             compiledStatementManager.resetStatements();
         }
+//// */
     }
 
     private synchronized void setState(int state) {

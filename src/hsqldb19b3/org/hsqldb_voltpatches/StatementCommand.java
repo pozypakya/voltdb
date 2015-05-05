@@ -238,6 +238,7 @@ public class StatementCommand extends Statement {
                     return Result.newErrorResult(e, sql);
                 }
             }
+            /* ////
             case StatementTypes.DATABASE_CHECKPOINT : {
                 boolean defrag = ((Boolean) parameters[0]).booleanValue();
 
@@ -249,6 +250,7 @@ public class StatementCommand extends Statement {
                     return Result.newErrorResult(e, sql);
                 }
             }
+            //// */
             case StatementTypes.SET_DATABASE_FILES_BACKUP_INCREMENT : {
                 try {
                     boolean mode = ((Boolean) parameters[0]).booleanValue();

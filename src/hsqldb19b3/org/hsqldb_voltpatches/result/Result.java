@@ -327,10 +327,10 @@ public class Result {
             result.rsConcurrency   = in.readShort();
             result.rsHoldability   = in.readShort();
 
-            Statement statement =
+            Statement statement = null; /* ////
                 session.database.compiledStatementManager.getStatement(session,
                     result.statementID);
-
+            //// */
             result.statement = statement;
             result.metaData  = result.statement.getParametersMetaData();
 
@@ -497,6 +497,7 @@ public class Result {
                 result.navigator.readSimple(in, result.metaData);
                 break;
 
+                /* ////
             case ResultConstants.EXECUTE :
                 result.updateCount     = in.readInt();
                 result.fetchSize       = in.readInt();
@@ -514,7 +515,7 @@ public class Result {
 
                 result.navigator.readSimple(in, result.metaData);
                 break;
-
+                ////  */
             case ResultConstants.UPDATE_RESULT : {
                 result.id = in.readLong();
 

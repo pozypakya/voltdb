@@ -203,14 +203,14 @@ public class ParserDDL extends ParserRoutine {
             case Tokens.INDEX :
                 // A VoltDB extension to support the assume unique attribute
                 return compileCreateIndex(false, false);
-                /* disable 1 line ...
+                /* disable 5 lines ...
                 return compileCreateIndex(false);
-                ... disabled 1 line */
-                // End of VoltDB extension
 
             case Tokens.FUNCTION :
             case Tokens.PROCEDURE :
                 return compileCreateProcedureOrFunction();
+                ... disabled 5 lines */
+                // End of VoltDB extension
 
             default : {
                 throw unexpectedToken();

@@ -238,7 +238,7 @@ public class Session implements SessionInterface {
         sessionData.closeAllNavigators();
         sessionData.persistentStoreCollection.clearAllTables();
         sessionData.closeResultCache();
-        database.compiledStatementManager.removeSession(sessionId);
+        ////database.compiledStatementManager.removeSession(sessionId);
         database.sessionManager.removeSession(this);
         database.closeIfLast();
 
@@ -876,7 +876,7 @@ public class Session implements SessionInterface {
         JavaSystem.gc();
 
         switch (type) {
-
+            /* ////
             case ResultConstants.LARGE_OBJECT_OP : {
                 return performLOBOperation((ResultLob) cmd);
             }
@@ -894,6 +894,7 @@ public class Session implements SessionInterface {
 
                 return result;
             }
+            //// */
             case ResultConstants.EXECDIRECT : {
                 Result result = executeDirectStatement(cmd);
 
@@ -908,6 +909,7 @@ public class Session implements SessionInterface {
 
                 return result;
             }
+            /* ////
             case ResultConstants.PREPARE : {
                 Statement cs;
 
@@ -935,6 +937,7 @@ public class Session implements SessionInterface {
 
                 return result;
             }
+            //// */
             case ResultConstants.CLOSE_RESULT : {
                 closeNavigator(cmd.getResultId());
 
@@ -945,12 +948,14 @@ public class Session implements SessionInterface {
 
                 return result;
             }
+            /* ////
             case ResultConstants.FREESTMT : {
                 database.compiledStatementManager.freeStatement(
                     cmd.getStatementID(), sessionId, false);
 
                 return Result.updateZeroResult;
             }
+            //// */
             case ResultConstants.GETSESSIONATTR : {
                 int id = cmd.getStatementType();
 
@@ -1219,6 +1224,7 @@ public class Session implements SessionInterface {
         return r;
     }
 
+    /* ////
     private Result executeCompiledBatchStatement(Result cmd) {
 
         long      csid;
@@ -1292,6 +1298,7 @@ public class Session implements SessionInterface {
         return Result.newBatchedExecuteResponse(updateCounts, generatedResult,
                 error);
     }
+    //// */
 
     private Result executeDirectBatchStatement(Result cmd) {
 
@@ -1359,6 +1366,7 @@ public class Session implements SessionInterface {
      *
      * @return the result of executing the statement
      */
+    /* ////
     private Result executeCompiledStatement(Result cmd) {
 
         Statement cs = cmd.getStatement();
@@ -1379,6 +1387,7 @@ public class Session implements SessionInterface {
 
         return executeCompiledStatement(cs, pvals);
     }
+    //// */
 
     /**
      * Retrieves the result of inserting, updating or deleting a row
