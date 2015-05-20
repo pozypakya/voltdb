@@ -283,13 +283,13 @@ public class CharacterType extends Type {
                  * but is disallowed in SQL:2003
                  * need to make dependent on a database property
                  */
-/*
+// hsql232 UNcommenting for backward compatibility: /*
                 int length = other.displaySize();
 
                 return getCharacterType(Types.SQL_VARCHAR,
                                         length).getAggregateType(this);
-*/
-                throw Error.error(ErrorCode.X_42562);
+// hsql232 UNcommenting for backward compatibility: */
+// hsql232 commenting out for backward compatibility:                throw Error.error(ErrorCode.X_42562);
         }
     }
 
