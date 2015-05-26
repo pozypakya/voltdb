@@ -283,13 +283,27 @@ public class CharacterType extends Type {
                  * but is disallowed in SQL:2003
                  * need to make dependent on a database property
                  */
-// hsql232 UNcommenting for backward compatibility: /*
+/*
+// A VoltDB extension to re-enable SQL-92-style type coercion even in hsql232
+   -- by truncating this block comment to re-enable this code --> */
+// It's not clear whether or for how long VoltDB should be continuing
+// to allow the more free-wheeling SQL style with implicit conversion
+// IF, as asserted above, it really IS just a SQL-92 vestige.
+// End of VoltDB extension
                 int length = other.displaySize();
 
                 return getCharacterType(Types.SQL_VARCHAR,
                                         length).getAggregateType(this);
-// hsql232 UNcommenting for backward compatibility: */
-// hsql232 commenting out for backward compatibility:                throw Error.error(ErrorCode.X_42562);
+// A VoltDB extension to re-enable SQL-92-style type coercion even in hsql232
+/* <-- restarting the block comment to rebalance the comment terminator. --
+// End of VoltDB extension
+*/
+                // A VoltDB extension to re-enable SQL-92-style implicit type coercion even in hsql232
+                // So this throw becomes dead code.
+                /* disable 1 line ...
+                throw Error.error(ErrorCode.X_42562);
+                ... disabled 1 line */
+                // End of VoltDB extension
         }
     }
 
