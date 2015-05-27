@@ -1410,6 +1410,8 @@ public class ParserDDL extends ParserRoutine {
                             throw Error.error(ErrorCode.X_42522);
                         }
                     }
+                    // TODO: enable a weaker form of this guard. The current form was
+                    // causing problems with some innocent-looking primary key definitions.
                     /* disable 4 lines ...
                     if (table.getUniqueConstraintForColumns(c.core.mainCols)
                             != null) {
