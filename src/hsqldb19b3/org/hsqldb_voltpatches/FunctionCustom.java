@@ -3740,7 +3740,18 @@ public class FunctionCustom extends FunctionSQL {
                 return new StringBuffer(name).append('(').append(
                     nodes[0].getSQL()).append(')').toString();
             }
+<<<<<<< HEAD
             case FUNC_ATAN2 :
+=======
+            // A VoltDB extension to customize SQL function support
+            case FUNC_CHAR :
+            case FUNC_SPACE :
+                return new StringBuffer(name).append('(')                 //
+                    .append(nodes[0].getSQL()).append(')').toString();
+            case FUNC_REPEAT :
+            case FUNC_LEFT :
+            case FUNC_RIGHT :
+>>>>>>> master
             case FUNC_BITAND :
             case FUNC_BITANDNOT :
             case FUNC_BITOR :
@@ -3748,6 +3759,16 @@ public class FunctionCustom extends FunctionSQL {
                 return new StringBuffer(name).append('(')         //
                         .append(nodes[0].getSQL()).append(Tokens.T_COMMA)     //
                         .append(nodes[1].getSQL()).append(')').toString();
+<<<<<<< HEAD
+=======
+            }
+            case FUNC_REPLACE : {
+                return new StringBuffer(name).append('(').append(
+                    nodes[0].getSQL()).append(Tokens.T_COMMA).append(
+                    nodes[1].getSQL()).append(Tokens.T_COMMA).append(
+                    nodes[2].getSQL()).append(')').toString();
+            }
+>>>>>>> master
             // End of VoltDB extension
             case FUNC_BITNOT :
             // A VoltDB extension: Hsqldb uses Integer type by default,
@@ -3801,6 +3822,10 @@ public class FunctionCustom extends FunctionSQL {
                 return getSQLSimple();
 
             default :
+            // A VoltDB extension to customize SQL function support
+            // This delegation to super (usually?) fails with a runtime exception.
+            //*enable to debug */ System.out.println("DEBUGGING: super.getSQL FUNCTION " + name + " VALUE " + funcType);
+            // End of VoltDB extension
                 return super.getSQL();
         }
     }
