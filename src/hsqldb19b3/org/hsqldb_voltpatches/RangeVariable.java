@@ -2059,13 +2059,12 @@ public class RangeVariable {
                             "SQL Syntax error: Every derived table must have its own alias.");
                 }
                 scan.attributes.put("table", tableAlias.name.toUpperCase());
-                // not yet hsql232 subquery parsing is going to take some figuring out
-                // ((TableDerived) rangeTable).queryExpression MAY be a start?
-                QuerySpecification qs = (QuerySpecification)((TableDerived) rangeTable).queryExpression;
-                // but it's probably nothing like this easy...
-                VoltXMLElement subQuery = qs.rowExpression.voltGetXML(session);
+
+                //VoltXMLElement subQuery = ((TableDerived) rangeTable).dataExpression.voltGetXML(session);
+                VoltXMLElement subQuery =  Expression.prototypes.get(OpTypes.TABLE_SUBQUERY).duplicate();
+
+                subQuery.children.add(StatementQuery.voltGetXMLExpression(rangeTable.getQueryExpression(), new ExpressionColumn[0], session));
                 scan.children.add(subQuery);
-                // not yet hsql232 */
             }
         } else {
             scan.attributes.put("table", rangeTable.getName().name.toUpperCase());
