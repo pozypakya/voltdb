@@ -261,7 +261,7 @@ contain the SQL statements which caused different responses on both backends.
 """ % (prog_name)
 
 def generate_html_reports(suite, seed, statements_path, hsql_path, jni_path,
-                          output_dir, report_all, cntonly = False):
+                          output_dir, report_all, extra_stats='', cntonly = False):
     if output_dir != None and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -271,7 +271,8 @@ def generate_html_reports(suite, seed, statements_path, hsql_path, jni_path,
     failures = 0
     count = 0
     mismatches = []
-    npes = []
+    voltdb_npes = []
+    hsqldb_npes = []
     all_results = []
 
     try:
@@ -293,11 +294,15 @@ def generate_html_reports(suite, seed, statements_path, hsql_path, jni_path,
             statement["hsqldb"] = hsql
             if is_different(statement, cntonly):
                 mismatches.append(statement)
-            if ('NullPointerException' in str(jni) or 'NullPointerException' in str(hsql)):
-                npes.append(statement)
+            if ('NullPointerException' in str(jni)):
+                voltdb_npes.append(statement)
                 # TODO: temp debug!!!
                 print 'statement:', statement
                 print 'jni:', jni
+            if ('NullPointerException' in str(hsql)):
+                hsqldb_npes.append(statement)
+                # TODO: temp debug!!!
+                print 'statement:', statement
                 print 'hsql:', hsql
             if report_all:
                 all_results.append(statement)
@@ -309,9 +314,10 @@ def generate_html_reports(suite, seed, statements_path, hsql_path, jni_path,
     hsql_file.close()
     jni_file.close()
 
-    topLine = getTopSummaryLine()
+    topLines = getTopSummaryLines(False)
     currentTime = datetime.datetime.now().strftime("%A, %B %d, %I:%M:%S %p")
-    keyStats = createSummaryInHTML(count, failures, len(mismatches), len(npes), seed)
+    keyStats = createSummaryInHTML(count, failures, len(mismatches), len(voltdb_npes),
+                                   len(hsqldb_npes), extra_stats, seed)
     report = """
 <html>
 <head>
@@ -325,8 +331,8 @@ h2 {text-transform: uppercase}
     <h2>Test Suite Name: %s</h2>
     <h4>Random Seed: <b>%d</b></h4>
     <p>This report was generated on <b>%s</b></p>
-    <table border=1><tr>%s</tr>
-""" % (suite, seed, currentTime, topLine)
+    <table border=1>%s
+""" % (suite, seed, currentTime, topLines)
 
     report += """
 <tr>%s</tr>
@@ -339,9 +345,13 @@ h2 {text-transform: uppercase}
         sorted(mismatches, cmp=cmp, key=key)
         report += print_section("Mismatched Statements", mismatches, output_dir)
 
-    if(len(npes) > 0):
-        sorted(npes, cmp=cmp, key=key)
-        report += print_section("Statements That Throw a NullPointerException (NPE)", npes, output_dir)
+    if(len(voltdb_npes) > 0):
+        sorted(voltdb_npes, cmp=cmp, key=key)
+        report += print_section("Statements That Cause a NullPointerException (NPE) in VoltDB", voltdb_npes, output_dir)
+
+    if(len(hsqldb_npes) > 0):
+        sorted(hsqldb_npes, cmp=cmp, key=key)
+        report += print_section("Statements That Cause a NullPointerException (NPE) in HSQLDB", hsqldb_npes, output_dir)
 
     if report_all:
         report += print_section("Total Statements", all_results, output_dir)
@@ -361,19 +371,30 @@ h2 {text-transform: uppercase}
     results["keyStats"] = keyStats
     return results
 
-def getTopSummaryLine():
-    topLine = """
+def getTopSummaryLines(includeAll=True):
+    topLines = "<tr>"
+    if includeAll:
+        topLines += "<td rowspan=2 align=center>Test Suite</td>"    
+    topLines += """
+<td colspan=5 align=center>SQL Statements</td>
+<td colspan=4 align=center>Test Failures</td>
+<td colspan=4 align=center>SQL Statements per Pattern</td>
+<td colspan=5 align=center>Time (min:sec)</td>
+</tr><tr>
 <td>Valid</td><td>Valid %</td>
 <td>Invalid</td><td>Invalid %</td>
 <td>Total</td>
 <td>Mismatched</td><td>Mismatched %</td>
 <td>NPE's</td><td>Crashes</td>
-<td>Minimum</td><td>Maximum</td><td># Patterns</td>
-<td>Generating SQL</td><td>Running VoltDB</td><td>Running HSQLDB</td><td>Comparing</td><td>Total</td>
+<td>Minimum</td><td>Maximum</td><td># Inserts</td><td># Patterns</td>
+<td>Generating SQL</td><td>Running VoltDB</td><td>Running HSQLDB</td>
 """
-    return topLine
+    if includeAll:
+        topLines += "<td>Comparing</td><td>Total</td>"
+    topLines += "</tr>"
+    return topLines
 
-def createSummaryInHTML(count, failures, misses, npes, seed):
+def createSummaryInHTML(count, failures, misses, voltdb_npes, hsqldb_npes, extra_stats, seed):
     passed = count - (failures + misses)
     passed_ps = fail_ps = cell4misPct = cell4misCnt = color = None
     if(failures == 0):
@@ -391,11 +412,14 @@ def createSummaryInHTML(count, failures, misses, npes, seed):
         cell4misCnt = "<td align=right bgcolor=" + color + ">" + str(misses) + "</td>"
     misRow = cell4misCnt + cell4misPct
 
-    if(npes == 0):
-        npeRow = "<td align=right>0</td>"
-    else:
+    if(voltdb_npes > 0):
+        color = "#FFA500" # orange
+        npeRow = "<td align=right bgcolor=" + color + ">" + str(voltdb_npes + hsqldb_npes) + "</td>"
+    elif(hsqldb_npes > 0):
         color = "#FFFF00" # yellow
-        npeRow = "<td align=right bgcolor=" + color + ">" + str(npes) + "</td>"
+        npeRow = "<td align=right bgcolor=" + color + ">" + str(voltdb_npes + hsqldb_npes) + "</td>"
+    else:
+        npeRow = "<td align=right>0</td>"
 
     if(passed == count):
         passed_ps = "100.00%"
@@ -406,14 +430,15 @@ def createSummaryInHTML(count, failures, misses, npes, seed):
 <td align=right>%s</td>
 <td align=right>%d</td>
 <td align=right>%s</td>
-<td align=right>%d</td>%s%s</tr>
-""" % (passed, passed_ps, failures, fail_ps, count, misRow, npeRow)
+<td align=right>%d</td>
+%s%s%s</tr>
+""" % (passed, passed_ps, failures, fail_ps, count, misRow, npeRow, extra_stats)
 
     return stats
 
 def generate_summary(output_dir, statistics):
     fd = open(os.path.join(output_dir, "index.html"), "w")
-    topLine = getTopSummaryLine()
+    topLines = getTopSummaryLines()
     content = """
 <html>
 <head>
@@ -427,15 +452,8 @@ h2 {text-transform: uppercase}
 <h2>SQL Coverage Test Summary Grouped By Suites:</h2>
 <h3>Random Seed: %d</h3>
 <table border=1>
-<tr>
-<td rowspan=2 align=center>Test Suite</td>
-<td colspan=5 align=center>SQL Statements</td>
-<td colspan=4 align=center>Test Failures</td>
-<td colspan=3 align=center>SQL Statements per Pattern</td>
-<td colspan=5 align=center>Time (min:sec)</td>
-</tr>
-<tr>%s</tr>
-""" % (statistics["seed"], topLine)
+%s
+""" % (statistics["seed"], topLines)
 
     def bullets(name, stats):
         return "<tr><td><a href=\"%s/index.html\">%s</a></td>%s</tr>" % \
@@ -445,10 +463,10 @@ h2 {text-transform: uppercase}
         if(suiteName != "seed" and suiteName != "totals" and not suiteName.startswith("time_for_")):
             content += bullets(suiteName, statistics[suiteName])
     content += "<tr><td>Totals</td>%s</tr>\n</table>" % statistics["totals"]
-    content += "\n<p>Time: %s for generating all SQL statements" % statistics["time_for_gensql"]
-    content += "\n<br>Time: %s for running all VoltDB (JNI) statements" % statistics["time_for_voltdb"]
-    content += "\n<br>Time: %s for running all HSqlDB statements" % statistics["time_for_hsqldb"]
-    content += "\n<br>Time: %s for comparing all DB results</p>" % statistics["time_for_compare"]
+    #content += "\n<p>Time: %s for generating all SQL statements" % statistics["time_for_gensql"]
+    #content += "\n<br>Time: %s for running all VoltDB (JNI) statements" % statistics["time_for_voltdb"]
+    #content += "\n<br>Time: %s for running all HSqlDB statements" % statistics["time_for_hsqldb"]
+    #content += "\n<br>Time: %s for comparing all DB results</p>" % statistics["time_for_compare"]
     content += """
 </body>
 </html>
