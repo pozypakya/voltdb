@@ -34,8 +34,6 @@ from optparse import OptionParser # for use in standalone test mode
 
 COUNT = 2                       # number of random values to generate by default
 ALLOW_SELF_JOIN = True
-MAX_STATEMENTS_PER_PATTERN = 0
-MIN_STATEMENTS_PER_PATTERN = sys.maxint
 
 def field_name_generator():
     i = 0
@@ -794,6 +792,9 @@ class SQLGenerator:
 
         self.__statements = self.__template.get_statements()
 
+    MIN_STATEMENTS_PER_PATTERN = sys.maxint
+    MAX_STATEMENTS_PER_PATTERN = 0
+    NUM_INSERT_STATEMENTS      = 0
 
     GENERATOR_TYPES = (TableGenerator, ColumnGenerator, ConstantGenerator, IdGenerator)
 
@@ -837,24 +838,25 @@ class SQLGenerator:
                 if self.__subversion_generation and re.match("(?i)\s*SELECT", i):
                     results += 1
                     yield 'SELECT * FROM (' + i + ') subquery'
+                if (i.upper().startswith('INSERT')):
+                    SQLGenerator.NUM_INSERT_STATEMENTS += 1
 
             if results == 0:
                 print 'Template "%s" failed to yield SQL statements' % s
             elif summarize_successes:
                 print 'Template "%s" yielded (%d) SQL statements' % (s, results)
 
-            global MIN_STATEMENTS_PER_PATTERN
-            global MAX_STATEMENTS_PER_PATTERN
-            MIN_STATEMENTS_PER_PATTERN = min(MIN_STATEMENTS_PER_PATTERN, results)
-            MAX_STATEMENTS_PER_PATTERN = max(MAX_STATEMENTS_PER_PATTERN, results)
+            SQLGenerator.MIN_STATEMENTS_PER_PATTERN = min(SQLGenerator.MIN_STATEMENTS_PER_PATTERN, results)
+            SQLGenerator.MAX_STATEMENTS_PER_PATTERN = max(SQLGenerator.MAX_STATEMENTS_PER_PATTERN, results)
 
     def min_statements_per_pattern(self):
-        global MIN_STATEMENTS_PER_PATTERN
-        return MIN_STATEMENTS_PER_PATTERN
+        return SQLGenerator.MIN_STATEMENTS_PER_PATTERN
 
     def max_statements_per_pattern(self):
-        global MAX_STATEMENTS_PER_PATTERN
-        return MAX_STATEMENTS_PER_PATTERN
+        return SQLGenerator.MAX_STATEMENTS_PER_PATTERN
+
+    def num_insert_statements(self):
+        return SQLGenerator.NUM_INSERT_STATEMENTS
 
     def num_patterns(self):
         return len(self.__statements)
