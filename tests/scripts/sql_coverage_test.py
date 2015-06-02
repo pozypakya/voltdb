@@ -269,12 +269,14 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
         counter += 1
     statements_file.close()
 
-    num_patterns = generator.num_patterns()
     min_statements_per_pattern = generator.min_statements_per_pattern()
     max_statements_per_pattern = generator.max_statements_per_pattern()
+    num_inserts  = generator.num_insert_statements()
+    num_patterns = generator.num_patterns()
 
-    if generate_only or submit_verbosely:
-        print "Generated %d statements." % counter
+    # TODO: temp debug:
+    #if generate_only or submit_verbosely:
+    print "Generated %d statements." % counter
     if generate_only:
         # Claim success without running servers.
         return {"keyStats" : None, "mis" : 0}
@@ -328,11 +330,20 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     hsqldb_time = print_elapsed_seconds("for running HSqlDB statements (" + suite_name + ")")
     total_hsqldb_time += hsqldb_time
 
+    someStats = (get_numerical_html_table_element(min_statements_per_pattern, strong_warn_below=1) + 
+                 get_numerical_html_table_element(max_statements_per_pattern, warn_above=100000) + 
+                 get_numerical_html_table_element(num_inserts,  warn_below=4, warn_above=100, strong_warn_below=1) +
+                 get_numerical_html_table_element(num_patterns, warn_above=1000) +
+                 get_time_html_table_element(gensql_time) + 
+                 get_time_html_table_element(voltdb_time) + 
+                 get_time_html_table_element(hsqldb_time) )
+    extraStats = get_numerical_html_table_element(num_crashes, error_above=0) + someStats
+
     global compare_results
     try:
         compare_results = imp.load_source("normalizer", config["normalizer"]).compare_results
         success = compare_results(suite_name, random_seed, statements_path, hsql_path,
-                                  jni_path, output_dir, report_all)
+                                  jni_path, output_dir, report_all, extraStats)
     except:
         print >> sys.stderr, "Compare (VoltDB & HSQLDB) results crashed!"
         traceback.print_exc()
@@ -340,12 +351,12 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
         print >> sys.stderr, "  hsql_path: %s" % (hsql_path)
         sys.stderr.flush()
         num_crashes += 1
-        defaultKeyStats = (get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
-                           get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
-                           get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
-                           get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
-                           '</tr>' )
-        success = {"keyStats": defaultKeyStats, "mis": -1}
+        errorStats = (get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
+                      get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
+                      get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
+                      get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
+                      get_numerical_html_table_element(num_crashes, error_above=0) + someStats + '</tr>' )
+        success = {"keyStats": errorStats, "mis": -1}
 
     # Print & save the elapsed time and total time, with a message
     global total_compar_time
@@ -382,6 +393,7 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     global keyStats_start_index
     global total_num_npes
     global total_num_crashes
+    global total_num_inserts
     global total_num_patterns
     global min_all_statements_per_pattern
     global max_all_statements_per_pattern
@@ -395,40 +407,41 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     next_keyStats_column_value()  # ignore Mismatched %
     total_num_npes        += int(next_keyStats_column_value())
     total_num_crashes     += num_crashes
+    total_num_inserts     += num_inserts
     total_num_patterns    += num_patterns
     min_all_statements_per_pattern = min(min_all_statements_per_pattern, min_statements_per_pattern)
     max_all_statements_per_pattern = max(max_all_statements_per_pattern, max_statements_per_pattern)
 
-    extraStats = (get_numerical_html_table_element(num_crashes, error_above=0) + 
-                  get_numerical_html_table_element(min_statements_per_pattern, error_below=1) + 
-                  get_numerical_html_table_element(max_statements_per_pattern, warn_above=100000) + 
-                  get_numerical_html_table_element(num_patterns, warn_above=100) +
-                  get_time_html_table_element(gensql_time) + 
-                  get_time_html_table_element(voltdb_time) + 
-                  get_time_html_table_element(hsqldb_time) + 
-                  get_time_html_table_element(compar_time) + 
+    finalStats = (get_time_html_table_element(compar_time) + 
                   get_time_html_table_element(suite_secs) )
 
-    success["keyStats"] = success["keyStats"].replace('</tr>', extraStats + '</tr>')
+    success["keyStats"] = success["keyStats"].replace('</tr>', finalStats + '</tr>')
 
     return success
 
-def get_html_table_element_color(value, error_below, error_above, warn_below, warn_above):
+def get_html_table_element_color(value, error_below, strong_warn_below, warn_below,
+                                 error_above, strong_warn_above, warn_above):
     color = ''
     if (value < error_below or value > error_above):
         color = ' bgcolor=#FF0000'  # red
+    elif (value < strong_warn_below or value > strong_warn_above):
+        color = ' bgcolor=#FFA500'  # orange
     elif (value < warn_below or value > warn_above):
         color = ' bgcolor=#FFFF00'  # yellow
     return color
 
-def get_numerical_html_table_element(value, error_below=0, error_above=1000000, warn_below=0, warn_above=1000000):
+def get_numerical_html_table_element(value, error_below=0, strong_warn_below=0, warn_below=0,
+                                     error_above=1000000000, strong_warn_above=1000000, warn_above=100000):
     return ('<td align=right%s>%d</td>' %
-            (get_html_table_element_color(value, error_below, error_above, warn_below, warn_above),
+            (get_html_table_element_color(value, error_below, strong_warn_below, warn_below,
+                                          error_above, strong_warn_above, warn_above),
              value) )
 
-def get_time_html_table_element(seconds, error_below=0, error_above=3600, warn_below=0, warn_above=600):
+def get_time_html_table_element(seconds, error_below=0, strong_warn_below=0, warn_below=0,
+                                error_above=21600, strong_warn_above=3600, warn_above=600):
     return ('<td align=right%s>%s</td>' %
-            (get_html_table_element_color(seconds, error_below, error_above, warn_below, warn_above),
+            (get_html_table_element_color(seconds, error_below, strong_warn_below, warn_below,
+                                          error_above, strong_warn_above, warn_above),
              minutes_colon_seconds(seconds)) )
 
 def get_voltcompiler(basedir):
@@ -597,7 +610,8 @@ if __name__ == "__main__":
     mismatched_statements = 0
     total_statements = 0
     total_num_npes = 0
-    total_num_crashes = 0
+    total_num_crashes  = 0
+    total_num_inserts  = 0
     total_num_patterns = 0
     max_all_statements_per_pattern = 0
     min_all_statements_per_pattern = sys.maxint
@@ -710,6 +724,7 @@ if __name__ == "__main__":
                            "\n<td align=right>" + str(total_num_crashes) + "</td>" + \
                            "\n<td align=right>" + str(min_all_statements_per_pattern) + "</td>" + \
                            "\n<td align=right>" + str(max_all_statements_per_pattern) + "</td>" + \
+                           "\n<td align=right>" + str(total_num_inserts) + "</td>" + \
                            "\n<td align=right>" + str(total_num_patterns) + "</td>" + \
                            "\n<td align=right>" + minutes_colon_seconds(total_gensql_time) + "</td>" + \
                            "\n<td align=right>" + minutes_colon_seconds(total_voltdb_time) + "</td>" + \
