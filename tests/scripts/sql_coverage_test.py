@@ -34,6 +34,7 @@ import cPickle
 import os.path
 import imp
 import re
+import traceback
 from voltdbclient import *
 from optparse import OptionParser
 from Query import VoltQueryClient
@@ -268,6 +269,10 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
         counter += 1
     statements_file.close()
 
+    num_patterns = generator.num_patterns()
+    min_statements_per_pattern = generator.min_statements_per_pattern()
+    max_statements_per_pattern = generator.max_statements_per_pattern()
+
     if generate_only or submit_verbosely:
         print "Generated %d statements." % counter
     if generate_only:
@@ -275,38 +280,77 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
         return {"keyStats" : None, "mis" : 0}
 
     # Print the elapsed time, with a message
-    global gensql_time
-    gensql_time += print_elapsed_seconds("for generating statements (" + suite_name + ")", time0)
+    global total_gensql_time
+    gensql_time = print_elapsed_seconds("for generating statements (" + suite_name + ")", time0)
+    total_gensql_time += gensql_time
 
-    if run_once("jni", command, statements_path, jni_path, submit_verbosely, testConfigKit) != 0:
-        print >> sys.stderr, "Test with the JNI backend had errors."
+    num_crashes = 0
+    failed = False
+    try:
+        if run_once("jni", command, statements_path, jni_path, submit_verbosely, testConfigKit) != 0:
+            print >> sys.stderr, "Test with the JNI (VoltDB) backend had errors."
+            failed = True
+    except:
+        print >> sys.stderr, "JNI (VoltDB) backend crashed!!!"
+        traceback.print_exc()
+        failed = True
+    if (failed):
         print >> sys.stderr, "  jni_path: %s" % (jni_path)
         sys.stderr.flush()
-        exit(1)
+        num_crashes += 1
+        #exit(1)
 
     # Print the elapsed time, with a message
-    global voltdb_time
-    voltdb_time += print_elapsed_seconds("for running VoltDB (JNI) statements (" + suite_name + ")")
+    global total_voltdb_time
+    voltdb_time = print_elapsed_seconds("for running VoltDB (JNI) statements (" + suite_name + ")")
+    total_voltdb_time += voltdb_time
 
     random.seed(random_seed)
     random.setstate(random_state)
 
-    if run_once("hsqldb", command, statements_path, hsql_path, submit_verbosely, testConfigKit) != 0:
-        print >> sys.stderr, "Test with the HSQLDB backend had errors."
-        exit(1)
+    failed = False
+    try:
+        if run_once("hsqldb", command, statements_path, hsql_path, submit_verbosely, testConfigKit) != 0:
+            print >> sys.stderr, "Test with the HSQLDB backend had errors."
+            failed = True
+    except:
+        print >> sys.stderr, "HSQLDB backend crashed!!"
+        traceback.print_exc()
+        failed = True
+    if (failed):
+        print >> sys.stderr, "  hsql_path: %s" % (hsql_path)
+        sys.stderr.flush()
+        num_crashes += 1
+        #exit(1)
 
     # Print the elapsed time, with a message
-    global hsqldb_time
-    hsqldb_time += print_elapsed_seconds("for running HSqlDB statements (" + suite_name + ")")
+    global total_hsqldb_time
+    hsqldb_time = print_elapsed_seconds("for running HSqlDB statements (" + suite_name + ")")
+    total_hsqldb_time += hsqldb_time
 
     global compare_results
-    compare_results = imp.load_source("normalizer", config["normalizer"]).compare_results
-    success = compare_results(suite_name, random_seed, statements_path, hsql_path,
-                              jni_path, output_dir, report_all)
+    try:
+        compare_results = imp.load_source("normalizer", config["normalizer"]).compare_results
+        success = compare_results(suite_name, random_seed, statements_path, hsql_path,
+                                  jni_path, output_dir, report_all)
+    except:
+        print >> sys.stderr, "Compare (VoltDB & HSQLDB) results crashed!"
+        traceback.print_exc()
+        print >> sys.stderr, "  jni_path: %s" % (jni_path)
+        print >> sys.stderr, "  hsql_path: %s" % (hsql_path)
+        sys.stderr.flush()
+        num_crashes += 1
+        defaultKeyStats = (get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
+                           get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
+                           get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
+                           get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
+                           '</tr>' )
+        success = {"keyStats": defaultKeyStats, "mis": -1}
 
     # Print & save the elapsed time and total time, with a message
-    global compar_time
-    compar_time += print_elapsed_seconds("for comparing DB results (" + suite_name + ")")
+    global total_compar_time
+    compar_time = print_elapsed_seconds("for comparing DB results (" + suite_name + ")")
+    total_compar_time += compar_time
     suite_secs = print_elapsed_seconds("for run_config of '" + suite_name + "'", time0, "Sub-tot time: ")
 
     # Accumulate the total number of Valid, Invalid, Mismatched & Total statements
@@ -326,7 +370,7 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
             keyStats_start_index = end_index + len(suffix)
         except:
             print "Caught exception:\n", sys.exc_info()[0]
-            print "success[keyStats]:\n" + success["keyStats"]
+            print "success[keyStats]:\n", success["keyStats"]
             print "keyStats_start_index:", keyStats_start_index
             print "start_index :", start_index
             print "end_index   :", end_index
@@ -336,6 +380,11 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     global invalid_statements
     global mismatched_statements
     global keyStats_start_index
+    global total_num_npes
+    global total_num_crashes
+    global total_num_patterns
+    global min_all_statements_per_pattern
+    global max_all_statements_per_pattern
     keyStats_start_index = 0
     valid_statements      += int(next_keyStats_column_value())
     next_keyStats_column_value()  # ignore Valid %
@@ -343,12 +392,44 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     next_keyStats_column_value()  # ignore Invalid %
     total_statements      += int(next_keyStats_column_value())
     mismatched_statements += int(next_keyStats_column_value())
+    next_keyStats_column_value()  # ignore Mismatched %
+    total_num_npes        += int(next_keyStats_column_value())
+    total_num_crashes     += num_crashes
+    total_num_patterns    += num_patterns
+    min_all_statements_per_pattern = min(min_all_statements_per_pattern, min_statements_per_pattern)
+    max_all_statements_per_pattern = max(max_all_statements_per_pattern, max_statements_per_pattern)
 
-    # Save the total time for this test suite
-    success["keyStats"] = success["keyStats"].replace('</tr>', '\n<td align=right>%s</td></tr>' %
-                                                      minutes_colon_seconds(suite_secs))
+    extraStats = (get_numerical_html_table_element(num_crashes, error_above=0) + 
+                  get_numerical_html_table_element(min_statements_per_pattern, error_below=1) + 
+                  get_numerical_html_table_element(max_statements_per_pattern, warn_above=100000) + 
+                  get_numerical_html_table_element(num_patterns, warn_above=100) +
+                  get_time_html_table_element(gensql_time) + 
+                  get_time_html_table_element(voltdb_time) + 
+                  get_time_html_table_element(hsqldb_time) + 
+                  get_time_html_table_element(compar_time) + 
+                  get_time_html_table_element(suite_secs) )
+
+    success["keyStats"] = success["keyStats"].replace('</tr>', extraStats + '</tr>')
 
     return success
+
+def get_html_table_element_color(value, error_below, error_above, warn_below, warn_above):
+    color = ''
+    if (value < error_below or value > error_above):
+        color = ' bgcolor=#FF0000'  # red
+    elif (value < warn_below or value > warn_above):
+        color = ' bgcolor=#FFFF00'  # yellow
+    return color
+
+def get_numerical_html_table_element(value, error_below=0, error_above=1000000, warn_below=0, warn_above=1000000):
+    return ('<td align=right%s>%d</td>' %
+            (get_html_table_element_color(value, error_below, error_above, warn_below, warn_above),
+             value) )
+
+def get_time_html_table_element(seconds, error_below=0, error_above=3600, warn_below=0, warn_above=600):
+    return ('<td align=right%s>%s</td>' %
+            (get_html_table_element_color(seconds, error_below, error_above, warn_below, warn_above),
+             minutes_colon_seconds(seconds)) )
 
 def get_voltcompiler(basedir):
     key = "voltdb"
@@ -506,15 +587,20 @@ if __name__ == "__main__":
     time0 = time.time()
     print "Initial time: " + str(time0) + ", at start (in seconds since January 1, 1970)"
     save_prev_time = time0
-    gensql_time = 0.0
-    voltdb_time = 0.0
-    hsqldb_time = 0.0
-    compar_time = 0.0
+    total_gensql_time = 0.0
+    total_voltdb_time = 0.0
+    total_hsqldb_time = 0.0
+    total_compar_time = 0.0
     keyStats_start_index = 0
     valid_statements = 0
     invalid_statements = 0
     mismatched_statements = 0
     total_statements = 0
+    total_num_npes = 0
+    total_num_crashes = 0
+    total_num_patterns = 0
+    max_all_statements_per_pattern = 0
+    min_all_statements_per_pattern = sys.maxint
 
     parser = OptionParser()
     parser.add_option("-l", "--leader", dest="hostname",
@@ -620,20 +706,33 @@ if __name__ == "__main__":
                            "\n<td align=right>" + str(total_statements) + "</td>" + \
                            "\n<td align=right>" + str(mismatched_statements) + "</td>" + \
                            "\n<td align=right>" + mismatched_percent + "%</td>" + \
+                           "\n<td align=right>" + str(total_num_npes) + "</td>" + \
+                           "\n<td align=right>" + str(total_num_crashes) + "</td>" + \
+                           "\n<td align=right>" + str(min_all_statements_per_pattern) + "</td>" + \
+                           "\n<td align=right>" + str(max_all_statements_per_pattern) + "</td>" + \
+                           "\n<td align=right>" + str(total_num_patterns) + "</td>" + \
+                           "\n<td align=right>" + minutes_colon_seconds(total_gensql_time) + "</td>" + \
+                           "\n<td align=right>" + minutes_colon_seconds(total_voltdb_time) + "</td>" + \
+                           "\n<td align=right>" + minutes_colon_seconds(total_hsqldb_time) + "</td>" + \
+                           "\n<td align=right>" + minutes_colon_seconds(total_compar_time) + "</td>" + \
                            "\n<td align=right>" + minutes_colon_seconds(time1-time0) + "</td></tr>\n"
-    statistics["time_for_gensql"] = str(gensql_time) + " seconds (" + minutes_colon_seconds(gensql_time) + ")"
-    statistics["time_for_voltdb"] = str(voltdb_time) + " seconds (" + minutes_colon_seconds(voltdb_time) + ")"
-    statistics["time_for_hsqldb"] = str(hsqldb_time) + " seconds (" + minutes_colon_seconds(hsqldb_time) + ")"
-    statistics["time_for_compare"] = str(compar_time) + " seconds (" + minutes_colon_seconds(compar_time) + ")"
+    statistics["time_for_gensql"] = str(total_gensql_time) + " seconds (" + minutes_colon_seconds(total_gensql_time) + ")"
+    statistics["time_for_voltdb"] = str(total_voltdb_time) + " seconds (" + minutes_colon_seconds(total_voltdb_time) + ")"
+    statistics["time_for_hsqldb"] = str(total_hsqldb_time) + " seconds (" + minutes_colon_seconds(total_hsqldb_time) + ")"
+    statistics["time_for_compare"] = str(total_compar_time) + " seconds (" + minutes_colon_seconds(total_compar_time) + ")"
     generate_summary(output_dir, statistics)
 
     # Print the elapsed time, and the current system time
-    print_seconds(gensql_time, "for generating ALL statements")
-    print_seconds(voltdb_time, "for running ALL VoltDB (JNI) statements")
-    print_seconds(hsqldb_time, "for running ALL HSqlDB statements")
-    print_seconds(compar_time, "for comparing ALL DB results")
+    print_seconds(total_gensql_time, "for generating ALL statements")
+    print_seconds(total_voltdb_time, "for running ALL VoltDB (JNI) statements")
+    print_seconds(total_hsqldb_time, "for running ALL HSqlDB statements")
+    print_seconds(total_compar_time, "for comparing ALL DB results")
     print_elapsed_seconds("for generating the output report", time1, "Total   time: ")
     print_elapsed_seconds("for the entire run", time0, "Total   time: ")
+    if total_num_npes > 0:
+        print "Total number of NullPointerExceptions (NPEs): %d" % total_num_npes
+    if total_num_crashes > 0:
+        print "Total number of (VoltDB, HSQLDB, or compare results) crashes: %d" % total_num_crashes
 
     if not success:
         print >> sys.stderr, "SQL coverage has errors."
