@@ -271,6 +271,7 @@ def generate_html_reports(suite, seed, statements_path, hsql_path, jni_path,
     failures = 0
     count = 0
     mismatches = []
+    npes = []
     all_results = []
 
     try:
@@ -292,6 +293,12 @@ def generate_html_reports(suite, seed, statements_path, hsql_path, jni_path,
             statement["hsqldb"] = hsql
             if is_different(statement, cntonly):
                 mismatches.append(statement)
+            if ('NullPointerException' in str(jni) or 'NullPointerException' in str(hsql)):
+                npes.append(statement)
+                # TODO: temp debug!!!
+                print 'statement:', statement
+                print 'jni:', jni
+                print 'hsql:', hsql
             if report_all:
                 all_results.append(statement)
 
@@ -304,7 +311,7 @@ def generate_html_reports(suite, seed, statements_path, hsql_path, jni_path,
 
     topLine = getTopSummaryLine()
     currentTime = datetime.datetime.now().strftime("%A, %B %d, %I:%M:%S %p")
-    keyStats = createSummaryInHTML(count, failures, len(mismatches), seed)
+    keyStats = createSummaryInHTML(count, failures, len(mismatches), len(npes), seed)
     report = """
 <html>
 <head>
@@ -332,6 +339,10 @@ h2 {text-transform: uppercase}
         sorted(mismatches, cmp=cmp, key=key)
         report += print_section("Mismatched Statements", mismatches, output_dir)
 
+    if(len(npes) > 0):
+        sorted(npes, cmp=cmp, key=key)
+        report += print_section("Statements That Throw a NullPointerException (NPE)", npes, output_dir)
+
     if report_all:
         report += print_section("Total Statements", all_results, output_dir)
 
@@ -356,16 +367,20 @@ def getTopSummaryLine():
 <td>Invalid</td><td>Invalid %</td>
 <td>Total</td>
 <td>Mismatched</td><td>Mismatched %</td>
+<td>NPE's</td><td>Crashes</td>
+<td>Minimum</td><td>Maximum</td><td># Patterns</td>
+<td>Generating SQL</td><td>Running VoltDB</td><td>Running HSQLDB</td><td>Comparing</td><td>Total</td>
 """
     return topLine
 
-def createSummaryInHTML(count, failures, misses, seed):
+def createSummaryInHTML(count, failures, misses, npes, seed):
     passed = count - (failures + misses)
     passed_ps = fail_ps = cell4misPct = cell4misCnt = color = None
     if(failures == 0):
         fail_ps = "0.00%"
     else:
         fail_ps = str("{0:.2f}".format((failures/float(count)) * 100)) + "%"
+
     if(misses == 0):
         cell4misPct = "<td align=right>0.00%</td>"
         cell4misCnt = "<td align=right>0</td>"
@@ -376,6 +391,12 @@ def createSummaryInHTML(count, failures, misses, seed):
         cell4misCnt = "<td align=right bgcolor=" + color + ">" + str(misses) + "</td>"
     misRow = cell4misCnt + cell4misPct
 
+    if(npes == 0):
+        npeRow = "<td align=right>0</td>"
+    else:
+        color = "#FFFF00" # yellow
+        npeRow = "<td align=right bgcolor=" + color + ">" + str(npes) + "</td>"
+
     if(passed == count):
         passed_ps = "100.00%"
     else:
@@ -385,8 +406,8 @@ def createSummaryInHTML(count, failures, misses, seed):
 <td align=right>%s</td>
 <td align=right>%d</td>
 <td align=right>%s</td>
-<td align=right>%d</td>%s</tr>
-""" % (passed, passed_ps, failures, fail_ps, count, misRow)
+<td align=right>%d</td>%s%s</tr>
+""" % (passed, passed_ps, failures, fail_ps, count, misRow, npeRow)
 
     return stats
 
@@ -408,9 +429,10 @@ h2 {text-transform: uppercase}
 <table border=1>
 <tr>
 <td rowspan=2 align=center>Test Suite</td>
-<td colspan=5 align=center>Statements</td>
-<td colspan=2 align=center>Test Failures</td>
-<td rowspan=2 align=center>Time<br>(min:sec)</td>
+<td colspan=5 align=center>SQL Statements</td>
+<td colspan=4 align=center>Test Failures</td>
+<td colspan=3 align=center>SQL Statements per Pattern</td>
+<td colspan=5 align=center>Time (min:sec)</td>
 </tr>
 <tr>%s</tr>
 """ % (statistics["seed"], topLine)
