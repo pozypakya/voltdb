@@ -197,7 +197,7 @@ def is_different(x, cntonly):
     #     x["highlight"] = "Columns"
     #     return True
 
-    jniColumns= jniResult.columns
+    jniColumns  = jniResult.columns
     hsqlColumns = hsqlResult.columns
     nColumns = len(jniColumns)
     if nColumns != len(hsqlColumns):
@@ -261,7 +261,7 @@ contain the SQL statements which caused different responses on both backends.
 """ % (prog_name)
 
 def generate_html_reports(suite, seed, statements_path, hsql_path, jni_path,
-                          output_dir, report_all, extra_stats='', cntonly = False):
+                          output_dir, report_all, extra_stats='', cntonly=False):
     if output_dir != None and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -331,7 +331,8 @@ h2 {text-transform: uppercase}
     <h2>Test Suite Name: %s</h2>
     <h4>Random Seed: <b>%d</b></h4>
     <p>This report was generated on <b>%s</b></p>
-    <table border=1>%s
+    <table border=1>
+    %s
 """ % (suite, seed, currentTime, topLines)
 
     report += """
@@ -374,7 +375,7 @@ h2 {text-transform: uppercase}
 def getTopSummaryLines(includeAll=True):
     topLines = "<tr>"
     if includeAll:
-        topLines += "<td rowspan=2 align=center>Test Suite</td>"    
+        topLines += "<td rowspan=2 align=center>Test Suite</td>"
     topLines += """
 <td colspan=5 align=center>SQL Statements</td>
 <td colspan=4 align=center>Test Failures</td>
