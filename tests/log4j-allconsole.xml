@@ -36,6 +36,10 @@
         <level value="INFO"/>
     </logger -->
 
+    <logger name="HSQLCOMPILER">
+        <level value="DEBUG"/>
+    </logger>
+
     <!-- logger name="COMPILER">
         <level value="INFO"/>
     </logger -->
