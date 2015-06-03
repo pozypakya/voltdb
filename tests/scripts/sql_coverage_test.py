@@ -126,7 +126,7 @@ def run_once(name, command, statements_path, results_path, submit_verbosely, tes
 
     global normalize
     if(host == defaultHost):
-        server = subprocess.Popen(command + " backend=" + name, shell = True)
+        server = subprocess.Popen(command + " backend=" + name, shell=True)
 
     client = None
     for i in xrange(30):
@@ -147,7 +147,7 @@ def run_once(name, command, statements_path, results_path, submit_verbosely, tes
 #        print "999 Key = '%s', Val = '%s'" % (key, testConfigKits[key])
     if(host != defaultHost):
         # Flush database
-        client.onecmd("updatecatalog " + testConfigKit["testCatalog"]  + " " + testConfigKit["deploymentFile"])
+        client.onecmd("updatecatalog " + testConfigKit["testCatalog"] + " " + testConfigKit["deploymentFile"])
 
     statements_file = open(statements_path, "rb")
     results_file = open(results_path, "wb")
@@ -166,7 +166,7 @@ def run_once(name, command, statements_path, results_path, submit_verbosely, tes
                 (statement["SQL"], sys.exc_info()[1])
             if(host == defaultHost):
                 # Should kill the server now
-                killer = subprocess.Popen("kill -9 %d" % (server.pid), shell = True)
+                killer = subprocess.Popen("kill -9 %d" % (server.pid), shell=True)
                 killer.communicate()
                 if killer.returncode != 0:
                     print >> sys.stderr, \
@@ -177,7 +177,7 @@ def run_once(name, command, statements_path, results_path, submit_verbosely, tes
             print >> sys.stderr, "No error, but an unexpected null client response (server crash?) from executing statement '%s': %s" % \
                 (statement["SQL"], sys.exc_info()[1])
             if(host == defaultHost):
-                killer = subprocess.Popen("kill -9 %d" % (server.pid), shell = True)
+                killer = subprocess.Popen("kill -9 %d" % (server.pid), shell=True)
                 killer.communicate()
                 if killer.returncode != 0:
                     print >> sys.stderr, \
@@ -187,7 +187,7 @@ def run_once(name, command, statements_path, results_path, submit_verbosely, tes
             ### print "DEBUG: got table(s) from ", statement["SQL"] ,"."
             table = normalize(client.response.tables[0], statement["SQL"])
             if len(client.response.tables) > 1:
-                print "WARNING: ignoring extra table(s) from result of query ?", statement["SQL"] ,"?"
+                print "WARNING: ignoring extra table(s) from result of query ?", statement["SQL"] , "?"
         # else:
             # print "WARNING: returned no table(s) from ?", statement["SQL"] ,"?"
         cPickle.dump({"Status": client.response.status,
@@ -330,12 +330,12 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     hsqldb_time = print_elapsed_seconds("for running HSqlDB statements (" + suite_name + ")")
     total_hsqldb_time += hsqldb_time
 
-    someStats = (get_numerical_html_table_element(min_statements_per_pattern, strong_warn_below=1) + 
-                 get_numerical_html_table_element(max_statements_per_pattern, warn_above=100000) + 
+    someStats = (get_numerical_html_table_element(min_statements_per_pattern, strong_warn_below=1) +
+                 get_numerical_html_table_element(max_statements_per_pattern, warn_above=100000) +
                  get_numerical_html_table_element(num_inserts,  warn_below=4, warn_above=100, strong_warn_below=1) +
                  get_numerical_html_table_element(num_patterns, warn_above=1000) +
-                 get_time_html_table_element(gensql_time) + 
-                 get_time_html_table_element(voltdb_time) + 
+                 get_time_html_table_element(gensql_time) +
+                 get_time_html_table_element(voltdb_time) +
                  get_time_html_table_element(hsqldb_time) )
     extraStats = get_numerical_html_table_element(num_crashes, error_above=0) + someStats
 
@@ -412,7 +412,7 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     min_all_statements_per_pattern = min(min_all_statements_per_pattern, min_statements_per_pattern)
     max_all_statements_per_pattern = max(max_all_statements_per_pattern, max_statements_per_pattern)
 
-    finalStats = (get_time_html_table_element(compar_time) + 
+    finalStats = (get_time_html_table_element(compar_time) +
                   get_time_html_table_element(suite_secs) )
 
     success["keyStats"] = success["keyStats"].replace('</tr>', finalStats + '</tr>')
@@ -497,7 +497,7 @@ def create_deploymentFile(options):
 
     deployment = Element('deployment')
     cluster = SubElement(deployment, 'cluster',
-            {'kfactor':kfactor,'sitesperhost':sitesperhost,'hostcount':hostcount})
+            {'kfactor':kfactor, 'sitesperhost':sitesperhost, 'hostcount':hostcount})
     httpd = SubElement(deployment, 'httpd', {'port':"8080"})
     jsonapi = SubElement(httpd, 'jsonapi', {'enabled':"true"})
     deploymentFile = "/tmp/deploymentFile.xml"
@@ -643,7 +643,7 @@ if __name__ == "__main__":
     (options, args) = parser.parse_args()
 
     if options.seed == None:
-        seed = random.randint(0, 2**63)
+        seed = random.randint(0, 2 ** 63)
         print "Random seed: %d" % seed
     else:
         seed = int(options.seed)
