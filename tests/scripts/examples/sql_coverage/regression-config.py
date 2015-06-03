@@ -204,6 +204,12 @@
         "template": "index-scan.sql",
         "normalizer": "normalizer.py"},
 
+# TODO: temporary, for testing new sqlCoverage features
+    "temp-test": {"schema": "schema.py",
+                  "ddl": "DDL.sql",
+                  "template": "temp-test.sql",
+                  "normalizer": "normalizer.py"},
+
 # This suite written to test push-down of aggregates and limits in combination
 # with indexes, projections and order-by.
     "pushdown": {"schema": "pushdown-schema.py",
