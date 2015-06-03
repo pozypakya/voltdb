@@ -115,7 +115,6 @@ public class TestFunctionsSuite extends RegressionSuite {
         // TODO: For that reason, it might make sense to break them out into
         // their own suite to make their specific issues easier to isolate.
 
-        /* not yet hsql232 -- getting GC and hang? NEEDS TICKET?
         cr = client.callProcedure("@AdHoc",
                 "select ID from P1 " +
                 "where SUBSTRING(DESC FROM 1 for 2) = 'X1' and ABS(ID+2) > 7 " +
@@ -123,7 +122,6 @@ public class TestFunctionsSuite extends RegressionSuite {
         assertEquals(ClientResponse.SUCCESS, cr.getStatus());
         result = cr.getResults()[0];
         assertEquals(5, result.getRowCount());
-        ... not yet hsql232 -- getting GC and hang? */
 
         VoltTable r;
         long resultA;
@@ -417,26 +415,26 @@ public class TestFunctionsSuite extends RegressionSuite {
         cr = client.callProcedure("@AdHoc", "select * from P1, R2 where P1.ID = R2.ID AND ABS(P1.NUM) > 0");
         assertEquals(ClientResponse.SUCCESS, cr.getStatus());
         r = cr.getResults()[0];
-        System.out.println(r);
+        //* enable to debug */ System.out.println(r);
         assertEquals(8, r.getRowCount());
 
         cr = client.callProcedure("@AdHoc", "select * from P1, R2 where P1.ID = R2.ID AND ABS(P1.NUM+0) > 0");
         assertEquals(ClientResponse.SUCCESS, cr.getStatus());
         r = cr.getResults()[0];
-        System.out.println(r);
+        //* enable to debug */ System.out.println(r);
         assertEquals(8, r.getRowCount());
 
         // These next queries fail in 3.5 with a runtime type exception about unrecognized type related?/similar? to ENG-5004?
         cr = client.callProcedure("@AdHoc", "select count(*) from P1, R2 where P1.ID = R2.ID AND ABS(R2.NUM+0) > 0");
         assertEquals(ClientResponse.SUCCESS, cr.getStatus());
         r = cr.getResults()[0];
-        System.out.println(r);
+        //* enable to debug */ System.out.println(r);
         assertEquals(8, r.asScalarLong());
 
         cr = client.callProcedure("@AdHoc", "select count(*) from P1, R2 where P1.ID = R2.ID AND ABS(R2.NUM) > 0");
         assertEquals(ClientResponse.SUCCESS, cr.getStatus());
         r = cr.getResults()[0];
-        System.out.println(r);
+        //* enable to debug */ System.out.println(r);
         assertEquals(8, r.asScalarLong());
         // */
 
@@ -530,7 +528,7 @@ public class TestFunctionsSuite extends RegressionSuite {
         cr = client.callProcedure("@AdHoc", "SELECT ABS(ID) AS ENG3196 FROM R1 ORDER BY (ID) LIMIT 5;");
         assertEquals(ClientResponse.SUCCESS, cr.getStatus());
         r = cr.getResults()[0];
-        System.out.println("DEBUG ENG-3196: " + r);
+        //* enable to debug */ System.out.println("DEBUG ENG-3196: " + r);
         long resultCount = r.getRowCount();
         assertEquals(5, resultCount);
         r.advanceRow();
@@ -707,11 +705,11 @@ public class TestFunctionsSuite extends RegressionSuite {
             cr = client.callProcedure("@AdHoc", "select count(*) from P1 where not SUBSTRING( DESC FROM 2) > 9");
             assertTrue(cr.getStatus() != ClientResponse.SUCCESS);
         } catch (ProcCallException e) {
-            /* hsql232 NEED TICKET! -- missing parser type check -- and getting runtime type check error!
+            /* hsql232 ENG-8397 -- missing parser type check -- and getting runtime type check error!
             //TODO: isolate this as a planner/TestFunctions test case.
             String msg = e.getMessage();
             assertTrue(msg.indexOf("incompatible data type") != -1);
-            ... not yet hsql232 */
+            // hsql232 */
             caught = true;
         }
         assertTrue(caught);
@@ -905,7 +903,7 @@ public class TestFunctionsSuite extends RegressionSuite {
             cr = client.callProcedure("DUMP_TIMESTAMP_STRING_PATHS");
             assertEquals(ClientResponse.SUCCESS, cr.getStatus());
             r = cr.getResults()[0];
-            System.out.println(r);
+            //* enable to debug */ System.out.println(r);
         }
 
         System.out.println("STARTING test Extract");
@@ -1151,7 +1149,7 @@ public class TestFunctionsSuite extends RegressionSuite {
         r = cr.getResults()[0];
         r.advanceRow();
         columnIndex = 0;
-        //System.out.println("Result: " + r);
+        //* enable to debug */ System.out.println("Result: " + r);
 
         EXPECTED_YEAR = 1956;
         result = r.getLong(columnIndex++);
@@ -1555,7 +1553,7 @@ public class TestFunctionsSuite extends RegressionSuite {
         //*VERBOSIFY TO DEBUG:*/ System.out.println("EXPECTING total count" + coveringCount);
         for (FunctionTestCase result : results) {
             if (result.m_result == 0.0) {
-                // complain("NONMATCHING filter " + result.m_case + " " + result.m_filter);
+                complain("NONMATCHING filter " + result.m_case + " " + result.m_filter);
                 continue;
             }
             Integer count = valueBag.get(String.format(formatForFuzziness, result.m_filter));
@@ -1589,7 +1587,9 @@ public class TestFunctionsSuite extends RegressionSuite {
         subtestFromVarCharCasts();
         subtestToVarCharCasts();
         subtestNumericCasts();
-        // hsql232 problem? NEED TICKET! subtestCeiling();
+        if ( ! isHSQL() ) { // hsql232 ENG-8398 ceiling wrong answers?
+            subtestCeiling();
+        }
         subtestExp();
         subtestFloor();
         subtestPowerx7();
@@ -2817,15 +2817,14 @@ public class TestFunctionsSuite extends RegressionSuite {
             fail();
         }
 
-        try {
-            sql = "SELECT ID, CASE WHEN num > 0 AND num < 5 THEN NULL " +
-                    "WHEN num >=5 THEN 'I am null'  ELSE num END FROM R1 ORDER BY 1;";
-            vt = cl.callProcedure("@AdHoc", sql).getResults()[0];
-            // hsql232 NEED TICKET! having no incompatibility problem with this: fail();
-        } catch (Exception ex) {
-            assertNotNull(ex);
-            assertTrue(ex.getMessage().contains("incompatible data types in combination"));
-        }
+        sql = "SELECT ID, CASE WHEN num > 0 AND num < 5 THEN NULL " +
+                "WHEN num >5 THEN 'I am null'  ELSE num END FROM R1 ORDER BY 1;";
+        vt = cl.callProcedure("@AdHoc", sql).getResults()[0];
+        vt.advanceRow();
+        assertNull(vt.getString(1));
+        vt.advanceRow();
+        // Validate that there is no longer an incompatibility problem with this
+        assertEquals(vt.getString(1), "5");
 
         // Test string types
         sql = "SELECT ID, CASE WHEN desc > 'Volt' THEN 'Good' ELSE 'Bad' END FROM R1 ORDER BY 1;";
@@ -3161,19 +3160,13 @@ public class TestFunctionsSuite extends RegressionSuite {
         doTestThreeColCoalesce(cl, "V1", "V2", "V3", "'hahaha'");
         doTestThreeColCoalesce(cl, "T1", "T2", "T3", "CAST ('2014-07-09 00:00:00.000000' as TIMESTAMP)");
 
-        // test compatiable types
+        // test compatible types
         doTestThreeColCoalesce(cl, "S1", "I2", "I3", "100");
         doTestThreeColCoalesce(cl, "S1", "F2", "D3", "100.0");
         doTestThreeColCoalesce(cl, "I1", "F2", "D3", "100.0");
 
-        // test incompatiable types
-        // TODO: Is the exception throwed by coalesce? Or by decode?
-        try {
-            doTestThreeColCoalesce(cl, "S1", "I2", "V3", "100");
-            // hsql232 NEED TICKET! having no incompatibility problem with this: fail();
-        } catch (ProcCallException pcex){
-            assertTrue(pcex.getMessage().contains("incompatible data types"));
-        }
+        // Not sure what this is testing now that there is no longer a type incompatibility problem with this
+        doTestThreeColCoalesce(cl, "S1", "I2", "V3", "100");
         try {
             doTestThreeColCoalesce(cl, "S1", "I2", "T3", "100");
             fail();

@@ -791,7 +791,7 @@ public class TestGroupByComplexSuite extends RegressionSuite {
     }
 
     private void ENG7046() throws IOException, ProcCallException {
-        /* hsql232 ENG-8331 DECODE uses NOT_DISTINCT operator 
+        /* hsql232 ENG-8331 DECODE uses NOT_DISTINCT operator
          * that VoltDB confuses for some unsupported "subquery" op.
         Client client = this.getClient();
         VoltTable vt;
