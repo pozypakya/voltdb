@@ -59,12 +59,12 @@ def safecmp(x, y):
     return cmp(len(x), len(y))
 
 # lame, but it matches at least up to 6 ORDER BY columns
-__EXPR = re.compile(r"ORDER BY\s(\w+\.(?P<column_1>\w+)(\s+\w+)?)"
-                    r"(,\s+\w+\.(?P<column_2>\w+)(\s+\w+)?)?"
-                    r"(,\s+\w+\.(?P<column_3>\w+)(\s+\w+)?)?"
-                    r"(,\s+\w+\.(?P<column_4>\w+)(\s+\w+)?)?"
-                    r"(,\s+\w+\.(?P<column_5>\w+)(\s+\w+)?)?"
-                    r"(,\s+\w+\.(?P<column_6>\w+)(\s+\w+)?)?")
+__EXPR = re.compile(r"ORDER BY\s((\w+\.)?(?P<column_1>\w+)(\s+\w+)?)"
+                    r"(,\s+(\w+\.)?(?P<column_2>\w+)(\s+\w+)?)?"
+                    r"(,\s+(\w+\.)?(?P<column_3>\w+)(\s+\w+)?)?"
+                    r"(,\s+(\w+\.)?(?P<column_4>\w+)(\s+\w+)?)?"
+                    r"(,\s+(\w+\.)?(?P<column_5>\w+)(\s+\w+)?)?"
+                    r"(,\s+(\w+\.)?(?P<column_6>\w+)(\s+\w+)?)?")
 
 # This appears to be a weak knock-off of FastSerializer.NullCheck
 # TODO: There's probably a way to use the actual FastSerializer.NullCheck
@@ -79,7 +79,7 @@ SIGNIFICANT_DIGITS = 12
 
 def normalize_value(v, vtype):
     global __NULL
-    if not v:
+    if v is None:
         return None
     if vtype in __NULL and v == __NULL[vtype]:
         return None
