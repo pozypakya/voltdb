@@ -792,9 +792,9 @@ class SQLGenerator:
 
         self.__statements = self.__template.get_statements()
 
-    MIN_STATEMENTS_PER_PATTERN = sys.maxint
-    MAX_STATEMENTS_PER_PATTERN = 0
-    NUM_INSERT_STATEMENTS      = 0
+        self.__min_statements_per_pattern = sys.maxint
+        self.__max_statements_per_pattern = 0
+        self.__num_insert_statements      = 0
 
     GENERATOR_TYPES = (TableGenerator, ColumnGenerator, ConstantGenerator, IdGenerator)
 
@@ -839,24 +839,24 @@ class SQLGenerator:
                     results += 1
                     yield 'SELECT * FROM (' + i + ') subquery'
                 if (i.upper().startswith('INSERT')):
-                    SQLGenerator.NUM_INSERT_STATEMENTS += 1
+                    self.__num_insert_statements += 1
 
             if results == 0:
                 print 'Template "%s" failed to yield SQL statements' % s
             elif summarize_successes:
                 print 'Template "%s" yielded (%d) SQL statements' % (s, results)
 
-            SQLGenerator.MIN_STATEMENTS_PER_PATTERN = min(SQLGenerator.MIN_STATEMENTS_PER_PATTERN, results)
-            SQLGenerator.MAX_STATEMENTS_PER_PATTERN = max(SQLGenerator.MAX_STATEMENTS_PER_PATTERN, results)
+            self.__min_statements_per_pattern = min(self.__min_statements_per_pattern, results)
+            self.__max_statements_per_pattern = max(self.__max_statements_per_pattern, results)
 
     def min_statements_per_pattern(self):
-        return SQLGenerator.MIN_STATEMENTS_PER_PATTERN
+        return self.__min_statements_per_pattern
 
     def max_statements_per_pattern(self):
-        return SQLGenerator.MAX_STATEMENTS_PER_PATTERN
+        return self.__max_statements_per_pattern
 
     def num_insert_statements(self):
-        return SQLGenerator.NUM_INSERT_STATEMENTS
+        return self.__num_insert_statements
 
     def num_patterns(self):
         return len(self.__statements)
