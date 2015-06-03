@@ -332,8 +332,8 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
 
     someStats = (get_numerical_html_table_element(min_statements_per_pattern, strong_warn_below=1) +
                  get_numerical_html_table_element(max_statements_per_pattern, warn_above=100000) +
-                 get_numerical_html_table_element(num_inserts,  warn_below=4, warn_above=100, strong_warn_below=1) +
-                 get_numerical_html_table_element(num_patterns, warn_above=1000) +
+                 get_numerical_html_table_element(num_inserts,  warn_below=4, warn_above=1000, strong_warn_below=1) +
+                 get_numerical_html_table_element(num_patterns, warn_above=10000) +
                  get_time_html_table_element(gensql_time) +
                  get_time_html_table_element(voltdb_time) +
                  get_time_html_table_element(hsqldb_time) )
@@ -745,7 +745,7 @@ if __name__ == "__main__":
     print_elapsed_seconds("for generating the output report", time1, "Total   time: ")
     print_elapsed_seconds("for the entire run", time0, "Total   time: ")
     if total_num_npes > 0:
-        print "Total number of NullPointerExceptions (NPEs): %d" % total_num_npes
+        print "Total number of (VoltDB or HSQLDB) NullPointerExceptions (NPEs): %d" % total_num_npes
     if total_num_crashes > 0:
         print "Total number of (VoltDB, HSQLDB, or compare results) crashes: %d" % total_num_crashes
 
