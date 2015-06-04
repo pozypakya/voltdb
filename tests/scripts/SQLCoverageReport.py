@@ -77,7 +77,7 @@ td {width: 50%%}
 <table cellpadding=3 cellspacing=1 border=1>
 <tr>
 <th>VoltDB Response</th>
-<th>HSQLDB Response</th>
+<th>HSqlDB Response</th>
 </tr>
 <tr>
 <td>%s</td>
@@ -123,7 +123,7 @@ def print_section(name, mismatches, output_dir):
 <th>ID</th>
 <th>SQL Statement</th>
 <th>VoltDB Status</th>
-<th>HSQLDB Status</th>
+<th>HSqlDB Status</th>
 </tr>
 """ % (name, len(mismatches))
 
@@ -352,7 +352,7 @@ h2 {text-transform: uppercase}
 
     if(len(hsqldb_npes) > 0):
         sorted(hsqldb_npes, cmp=cmp, key=key)
-        report += print_section("Statements That Cause a NullPointerException (NPE) in HSQLDB", hsqldb_npes, output_dir)
+        report += print_section("Statements That Cause a NullPointerException (NPE) in HSqlDB", hsqldb_npes, output_dir)
 
     if report_all:
         report += print_section("Total Statements", all_results, output_dir)
@@ -388,7 +388,7 @@ def getTopSummaryLines(includeAll=True):
 <td>Mismatched</td><td>Mismatched %</td>
 <td>NPE's</td><td>Crashes</td>
 <td>Minimum</td><td>Maximum</td><td># Inserts</td><td># Patterns</td>
-<td>Generating SQL</td><td>Running VoltDB</td><td>Running HSQLDB</td>
+<td>Generating SQL</td><td>VoltDB</td><td>HSqlDB</td>
 """
     if includeAll:
         topLines += "<td>Comparing</td><td>Total</td>"
@@ -461,13 +461,9 @@ h2 {text-transform: uppercase}
             (name, name, stats)
 
     for suiteName in sorted(statistics.iterkeys()):
-        if(suiteName != "seed" and suiteName != "totals" and not suiteName.startswith("time_for_")):
+        if(suiteName != "seed" and suiteName != "totals"):
             content += bullets(suiteName, statistics[suiteName])
     content += "<tr><td>Totals</td>%s</tr>\n</table>" % statistics["totals"]
-    #content += "\n<p>Time: %s for generating all SQL statements" % statistics["time_for_gensql"]
-    #content += "\n<br>Time: %s for running all VoltDB (JNI) statements" % statistics["time_for_voltdb"]
-    #content += "\n<br>Time: %s for running all HSqlDB statements" % statistics["time_for_hsqldb"]
-    #content += "\n<br>Time: %s for comparing all DB results</p>" % statistics["time_for_compare"]
     content += """
 </body>
 </html>
