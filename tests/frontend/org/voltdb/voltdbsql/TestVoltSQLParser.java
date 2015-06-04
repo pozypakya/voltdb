@@ -16,7 +16,7 @@ public class TestVoltSQLParser extends TestCase {
         try {
             hsql.runDDLCommand(ddl1);
             hsql.runDDLCommand(ddl2);
-            VoltXMLElement xml = hsql.getVoltCatalogXML(null);
+            VoltXMLElement xml = hsql.getVoltCatalogXML(null, null);
             assertTrue(true);
         }
         catch (HSQLParseException e) {

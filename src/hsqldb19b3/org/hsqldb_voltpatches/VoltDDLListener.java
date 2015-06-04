@@ -15,5 +15,4 @@ public class VoltDDLListener extends DDLListener {
         // TODO Auto-generated method stub
         return null;
     }
-
 }

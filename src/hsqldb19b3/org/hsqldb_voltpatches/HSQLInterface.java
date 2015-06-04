@@ -19,6 +19,7 @@ package org.hsqldb_voltpatches;
 
 import java.io.IOException;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
@@ -210,19 +211,17 @@ public class HSQLInterface {
 
         // get old and new XML representations for the affected table
         VoltXMLElement tableXMLNew = null, tableXMLOld = null;
-        if (usingVoltSQLParser()) {
-            tableXMLNew = getVoltXMLFromDDLUsingVoltSQLParser(ddl, null);
-        } else {
-            runDDLCommand(ddl);
-            // If we expect to fail, but the statement above didn't bail...
-            // (Shouldn't get here ever I think)
-            if (expectFailure) {
-                throw new HSQLParseException("Unable to plan statement due to VoltDB DDL pre-processing error");
-            }
-            // sanity checks for non-failure
-            assert(stmtInfo != null);
-            tableXMLNew = getXMLForTable(expectedTableAffected);
+        // This will add the internal representation of the DDL to
+        // HSQL or VoltSQLParser, whichever is configured.
+        runDDLCommand(ddl);
+        // If we expect to fail, but the statement above didn't bail...
+        // (Shouldn't get here ever I think)
+        if (expectFailure) {
+            throw new HSQLParseException("Unable to plan statement due to VoltDB DDL pre-processing error");
         }
+        // sanity checks for non-failure
+        assert(stmtInfo != null);
+        tableXMLNew = getXMLForTable(expectedTableAffected);
 
         if (expectedTableAffected != null) {
             tableXMLOld = lastSchema.get(expectedTableAffected);
@@ -354,7 +353,7 @@ public class HSQLInterface {
             // clean up sql-in expressions
             fixupInStatementExpressions(xml);
         } else {
-            xml = getVoltXMLFromDDLUsingVoltSQLParser(sql, null);
+            xml = getVoltXMLFromDQLUsingVoltSQLParser(sql, null);
         }
         if (m_logger.isDebugEnabled()) {
             m_logger.debug("\nSQL: " + sql + "\n");
@@ -374,7 +373,7 @@ public class HSQLInterface {
         return xml;
     }
 
-    public VoltXMLElement getVoltCatalogXML(CatalogAdapter aAdapter) {
+    public VoltXMLElement getVoltCatalogXML(String aTableName, CatalogAdapter aAdapter) {
         VoltXMLElement xml = new VoltXMLElement(XML_SCHEMA_NAME);
         CatalogAdapter adapter = aAdapter;
         if (adapter == null) {
@@ -382,6 +381,9 @@ public class HSQLInterface {
         }
         xml.withValue("name", "databaseschema");
         for (String tblName : adapter.getTableNames()) {
+            if ((aTableName != null) && (!aTableName.equalsIgnoreCase(tblName))) {
+                continue;
+            }
             org.voltdb.sqlparser.symtab.Table table = adapter.getTableByName(tblName);
             VoltXMLElement tableXML = new VoltXMLElement("table");
             tableXML.withValue("name", table.getName());
@@ -608,23 +610,27 @@ public class HSQLInterface {
      */
     public VoltXMLElement getXMLForTable(String tableName) throws HSQLParseException {
         VoltXMLElement xml = emptySchema.duplicate();
+        if (usingVoltSQLParser()) {
+            return getVoltCatalogXML(tableName, m_catalogAdapter);
+        } else {
 
-        // search all the tables XXX probably could do this non-linearly,
-        //  but i don't know about case-insensitivity yet
-        HashMappedList hsqlTables = getHSQLTables();
-        for (int i = 0; i < hsqlTables.size(); i++) {
-            Table table = (Table) hsqlTables.get(i);
-            String candidateTableName = table.getName().name;
+            // search all the tables XXX probably could do this non-linearly,
+            //  but i don't know about case-insensitivity yet
+            HashMappedList hsqlTables = getHSQLTables();
+            for (int i = 0; i < hsqlTables.size(); i++) {
+                Table table = (Table) hsqlTables.get(i);
+                String candidateTableName = table.getName().name;
 
-            // found the table of interest
-            if (candidateTableName.equalsIgnoreCase(tableName)) {
-                VoltXMLElement vxmle = table.voltGetTableXML(sessionProxy);
-                assert(vxmle != null);
-                xml.children.add(vxmle);
-                return xml;
+                // found the table of interest
+                if (candidateTableName.equalsIgnoreCase(tableName)) {
+                    VoltXMLElement vxmle = table.voltGetTableXML(sessionProxy);
+                    assert(vxmle != null);
+                    xml.children.add(vxmle);
+                    return xml;
+                }
             }
+            return null;
         }
-        return null;
     }
 
     /**
@@ -655,17 +661,14 @@ public class HSQLInterface {
      */
     public void processDDLStatementsUsingVoltSQLParser(String sql, CatalogAdapter aAdapter) throws HSQLParseException {
         SQLParserDriver driver;
-        CatalogAdapter adapter = aAdapter;
-        if (adapter == null) {
-            adapter = m_catalogAdapter;
-        }
+        CatalogAdapter adapter = (aAdapter == null) ? m_catalogAdapter : aAdapter;
+        VoltParserFactory factory = new VoltParserFactory(adapter);
+        VoltDDLListener listener = new VoltDDLListener(factory);
         try {
-            driver = new SQLParserDriver(sql);
+            driver = new SQLParserDriver(sql, listener);
         } catch (IOException e) {
             throw new HSQLParseException(e.getMessage());
         }
-        VoltParserFactory factory = new VoltParserFactory(adapter);
-        VoltDDLListener listener = new VoltDDLListener(factory);
         driver.walk(listener);
         if (listener.hasErrors()) {
             throw new HSQLParseException(listener.getErrorMessagesAsString());
@@ -676,7 +679,8 @@ public class HSQLInterface {
      * Process a DDL string and return the VoltXML for the resulting
      * catalog.  If the CatalogAdapter is supplied use it.  If it is
      * null, use the HSQLInterface's CatalogAdapter, which is the one
-     * representing the current database.
+     * representing the current database.  Note that this updates the
+     * CatalogAdapter.
      *
      * @param sql
      * @return
@@ -684,7 +688,27 @@ public class HSQLInterface {
      */
     public VoltXMLElement getVoltXMLFromDDLUsingVoltSQLParser(String aSQL, CatalogAdapter aAdapter) throws HSQLParseException {
         processDDLStatementsUsingVoltSQLParser(aSQL, aAdapter);
-        return getVoltCatalogXML(aAdapter);
+        return getVoltCatalogXML(null, aAdapter);
+    }
+
+    /**
+     * Process a DQL string and return the VoltXML for the resulting
+     * catalog.  If the CatalogAdapter is supplied use it.  If it is
+     * null, use the HSQLInterface's CatalogAdapter, which is the one
+     * representing the current database.  Note that this *does not*
+     * update the CatalogAdapter.  This is just a DQL statement.
+     *
+     * @param sql
+     * @return
+     * @throws HSQLParseException
+     */
+    public VoltXMLElement getVoltXMLFromDQLUsingVoltSQLParser(String aSQL, CatalogAdapter aAdapter) throws HSQLParseException {
+        processDDLStatementsUsingVoltSQLParser(aSQL, aAdapter);
+        return getVoltXML(aAdapter);
+    }
+
+    private VoltXMLElement getVoltXML(CatalogAdapter aAdapter) {
+        return null;
     }
 
     private boolean usingVoltSQLParser() {
