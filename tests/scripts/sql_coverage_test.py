@@ -65,19 +65,16 @@ def minutes_colon_seconds(seconds):
 def print_seconds(seconds=0, message_end="", message_begin="Total   time: ",
                   include_current_time=False):
     """ Prints, and returns, a message containing the specified number of
-    seconds, preceded by the 'message_begin' and followed by "seconds, " and
-    the 'message_end'; if the number of seconds is greater than or equal to 60,
-    it also prints the minutes and seconds in parentheses, e.g., 61.9 seconds
-    would be printed as "61.9 seconds (01:02), ". Optionally, if
-    'include_current_time' is True, the current time (in seconds since January
-    1, 1970) is also printed, in brackets, e.g.,
-    "61.9 seconds (1:02) [at 1408645826.68], ", which is useful for debugging
+    seconds, first in a minutes:seconds format (e.g. "01:02", or "1:43:48"),
+    then just the exact number of seconds in parentheses, e.g.,
+    "1:02 (61.9 seconds)", preceded by the 'message_begin' and followed by
+    'message_end'. Optionally, if 'include_current_time' is True, the current
+    time (in seconds since January 1, 1970) is also printed, in brackets, e.g.,
+    "1:02 (61.9 seconds) [at 1408645826.68], ", which is useful for debugging
     purposes.
     """
 
-    time_msg = str(seconds) + " seconds"
-    if (seconds >= 60):
-        time_msg += " (" + minutes_colon_seconds(seconds) + ")"
+    time_msg = minutes_colon_seconds(seconds) + " (" + str(seconds) + " seconds)"
     if (include_current_time):
         time_msg += " [at " + str(time.time()) + "]"
 
@@ -313,10 +310,10 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     failed = False
     try:
         if run_once("hsqldb", command, statements_path, hsql_path, submit_verbosely, testConfigKit) != 0:
-            print >> sys.stderr, "Test with the HSQLDB backend had errors."
+            print >> sys.stderr, "Test with the HSqlDB backend had errors."
             failed = True
     except:
-        print >> sys.stderr, "HSQLDB backend crashed!!"
+        print >> sys.stderr, "HSqlDB backend crashed!!"
         traceback.print_exc()
         failed = True
     if (failed):
@@ -345,7 +342,7 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
         success = compare_results(suite_name, random_seed, statements_path, hsql_path,
                                   jni_path, output_dir, report_all, extraStats)
     except:
-        print >> sys.stderr, "Compare (VoltDB & HSQLDB) results crashed!"
+        print >> sys.stderr, "Compare (VoltDB & HSqlDB) results crashed!"
         traceback.print_exc()
         print >> sys.stderr, "  jni_path: %s" % (jni_path)
         print >> sys.stderr, "  hsql_path: %s" % (hsql_path)
@@ -731,23 +728,19 @@ if __name__ == "__main__":
                            "\n<td align=right>" + minutes_colon_seconds(total_hsqldb_time) + "</td>" + \
                            "\n<td align=right>" + minutes_colon_seconds(total_compar_time) + "</td>" + \
                            "\n<td align=right>" + minutes_colon_seconds(time1-time0) + "</td></tr>\n"
-    statistics["time_for_gensql"] = str(total_gensql_time) + " seconds (" + minutes_colon_seconds(total_gensql_time) + ")"
-    statistics["time_for_voltdb"] = str(total_voltdb_time) + " seconds (" + minutes_colon_seconds(total_voltdb_time) + ")"
-    statistics["time_for_hsqldb"] = str(total_hsqldb_time) + " seconds (" + minutes_colon_seconds(total_hsqldb_time) + ")"
-    statistics["time_for_compare"] = str(total_compar_time) + " seconds (" + minutes_colon_seconds(total_compar_time) + ")"
     generate_summary(output_dir, statistics)
 
-    # Print the elapsed time, and the current system time
-    print_seconds(total_gensql_time, "for generating ALL statements")
+    # Print the total time, for each type of activity
+    print_seconds(total_gensql_time, "for generating ALL SQL statements")
     print_seconds(total_voltdb_time, "for running ALL VoltDB (JNI) statements")
     print_seconds(total_hsqldb_time, "for running ALL HSqlDB statements")
     print_seconds(total_compar_time, "for comparing ALL DB results")
     print_elapsed_seconds("for generating the output report", time1, "Total   time: ")
     print_elapsed_seconds("for the entire run", time0, "Total   time: ")
     if total_num_npes > 0:
-        print "Total number of (VoltDB or HSQLDB) NullPointerExceptions (NPEs): %d" % total_num_npes
+        print "Total number of (VoltDB or HSqlDB) NullPointerExceptions (NPEs): %d" % total_num_npes
     if total_num_crashes > 0:
-        print "Total number of (VoltDB, HSQLDB, or compare results) crashes: %d" % total_num_crashes
+        print "Total number of (VoltDB, HSqlDB, or compare results) crashes: %d" % total_num_crashes
 
     if not success:
         print >> sys.stderr, "SQL coverage has errors."
