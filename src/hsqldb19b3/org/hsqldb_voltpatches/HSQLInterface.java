@@ -33,6 +33,10 @@ import org.hsqldb_voltpatches.result.Result;
 import org.voltcore.logging.VoltLogger;
 import org.voltdb.sqlparser.SQLParserDriver;
 import org.voltdb.sqlparser.grammar.DDLListener;
+import org.voltdb.sqlparser.grammar.IInsertStatement;
+import org.voltdb.sqlparser.grammar.ISelectQuery;
+import org.voltdb.sqlparser.grammar.InsertStatement;
+import org.voltdb.sqlparser.grammar.SelectQuery;
 import org.voltdb.sqlparser.symtab.CatalogAdapter;
 import org.voltdb.sqlparser.symtab.SymbolTable;
 
@@ -660,10 +664,14 @@ public class HSQLInterface {
      * @throws HSQLParseException
      */
     public void processDDLStatementsUsingVoltSQLParser(String sql, CatalogAdapter aAdapter) throws HSQLParseException {
-        SQLParserDriver driver;
         CatalogAdapter adapter = (aAdapter == null) ? m_catalogAdapter : aAdapter;
         VoltParserFactory factory = new VoltParserFactory(adapter);
         VoltDDLListener listener = new VoltDDLListener(factory);
+        processSQLWithListener(sql, adapter, listener);
+    }
+
+    private void processSQLWithListener(String sql, CatalogAdapter adapter, VoltDDLListener listener) throws HSQLParseException {
+        SQLParserDriver driver;
         try {
             driver = new SQLParserDriver(sql, listener);
         } catch (IOException e) {
@@ -673,22 +681,6 @@ public class HSQLInterface {
         if (listener.hasErrors()) {
             throw new HSQLParseException(listener.getErrorMessagesAsString());
         }
-    }
-
-    /**
-     * Process a DDL string and return the VoltXML for the resulting
-     * catalog.  If the CatalogAdapter is supplied use it.  If it is
-     * null, use the HSQLInterface's CatalogAdapter, which is the one
-     * representing the current database.  Note that this updates the
-     * CatalogAdapter.
-     *
-     * @param sql
-     * @return
-     * @throws HSQLParseException
-     */
-    public VoltXMLElement getVoltXMLFromDDLUsingVoltSQLParser(String aSQL, CatalogAdapter aAdapter) throws HSQLParseException {
-        processDDLStatementsUsingVoltSQLParser(aSQL, aAdapter);
-        return getVoltCatalogXML(null, aAdapter);
     }
 
     /**
@@ -703,12 +695,11 @@ public class HSQLInterface {
      * @throws HSQLParseException
      */
     public VoltXMLElement getVoltXMLFromDQLUsingVoltSQLParser(String aSQL, CatalogAdapter aAdapter) throws HSQLParseException {
-        processDDLStatementsUsingVoltSQLParser(aSQL, aAdapter);
-        return getVoltXML(aAdapter);
-    }
-
-    private VoltXMLElement getVoltXML(CatalogAdapter aAdapter) {
-        return null;
+        CatalogAdapter adapter = (aAdapter == null) ? m_catalogAdapter : aAdapter;
+        VoltParserFactory factory = new VoltParserFactory(adapter);
+        VoltDDLListener listener = new VoltDDLListener(factory);
+        processSQLWithListener(aSQL, adapter, listener);
+        return listener.getVoltXML();
     }
 
     private boolean usingVoltSQLParser() {
