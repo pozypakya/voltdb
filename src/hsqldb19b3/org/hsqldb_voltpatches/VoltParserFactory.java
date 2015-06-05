@@ -32,6 +32,7 @@ public class VoltParserFactory extends ParserFactory {
         answer.withValue("valuetype", intType.getName().toUpperCase());
         return null;
     }
+
     @Override
     public IAST makeIntegerAST(IOperator aOp,
                                Neutrino aLeftoperand,
@@ -142,8 +143,9 @@ public class VoltParserFactory extends ParserFactory {
     }
 
     @Override
-    public IAST makeColumnRef(String aRealTableName, String aTableAlias,
-            String aColumnName) {
+    public IAST makeColumnRef(String aRealTableName,
+                              String aTableAlias,
+                              String aColumnName) {
         VoltXMLElement answer = new VoltXMLElement("columnref");
         answer.withValue("alias", aColumnName)
               .withValue("column", aColumnName)
