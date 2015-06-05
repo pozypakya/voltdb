@@ -293,7 +293,7 @@ public class HSQLInterface {
      * on every DDL statment in the file.
      *
      * @param path Path to a text file containing semi-colon
-     * delimeted SQL DDL statements.
+     * delimited SQL DDL statements.
      * @throws HSQLParseException throws an exeption if there
      * is a problem reading, parsing, or running the file.
      */
@@ -390,7 +390,7 @@ public class HSQLInterface {
             }
             org.voltdb.sqlparser.symtab.Table table = adapter.getTableByName(tblName);
             VoltXMLElement tableXML = new VoltXMLElement("table");
-            tableXML.withValue("name", table.getName());
+            tableXML.withValue("name", table.getName().toUpperCase());
             xml.children.add(tableXML);
             VoltXMLElement columnsXML = new VoltXMLElement("columns");
             columnsXML.withValue("name", "columns");
@@ -399,7 +399,7 @@ public class HSQLInterface {
             for (String colName : table.getColumnNames()) {
                 org.voltdb.sqlparser.symtab.Column col = table.getColumnByName(colName);
                 VoltXMLElement colXML = new VoltXMLElement("column");
-                colXML.withValue("name", colName)
+                colXML.withValue("name", colName.toUpperCase())
                       .withValue("index", Integer.toString(colidx))
                       .withValue("nullable", "false")
                       .withValue("size", Long.toString(col.getMaxSize()))

@@ -20,7 +20,7 @@ public class VoltDDLListener extends DDLListener {
             return getVoltXML(istat);
         }
         ISelectQuery qstat = getSelectQuery();
-        if (istat != null) {
+        if (qstat != null) {
             return getVoltXML(qstat);
         }
         return null;
@@ -30,28 +30,29 @@ public class VoltDDLListener extends DDLListener {
         assert(aInsertStatement instanceof InsertStatement);
         InsertStatement insertStatement = (InsertStatement)aInsertStatement;
         VoltXMLElement top = new VoltXMLElement("insert");
-        top.withValue("table", insertStatement.getTableName());
+        top.withValue("table", insertStatement.getTableName().toUpperCase());
         VoltXMLElement columns = new VoltXMLElement("columns");
         top.children.add(columns);
         for (int idx = 0; idx < insertStatement.getNumberColumns(); idx += 1) {
             VoltXMLElement col = new VoltXMLElement("column");
             columns.children.add(col);
-            col.withValue("name", insertStatement.getColumnName(idx));
+            col.withValue("name", insertStatement.getColumnName(idx).toUpperCase());
             VoltXMLElement val = new VoltXMLElement("value");
             col.children.add(val);
             val.withValue("id", Integer.toString(idx+1));
             val.withValue("value", insertStatement.getColumnValue(idx));
-            val.withValue("valuetype", insertStatement.getColumnType(idx).getName());
+            val.withValue("valuetype", insertStatement.getColumnType(idx).getName().toUpperCase());
         }
         VoltXMLElement params = new VoltXMLElement("parameters");
-        params.withValue("name", "parameters");
         top.children.add(params);
         return top;
     }
 
     private VoltXMLElement getVoltXML(ISelectQuery qstat) {
-        // TODO Auto-generated method stub
-        return null;
+        return (VoltXMLElement)getFactory().makeQueryAST(qstat.getProjections(),
+                                                         qstat.getWhereCondition(),
+                                                         qstat.getTables());
+
     }
 
 
