@@ -24,7 +24,7 @@ public class VoltParserFactory extends ParserFactory {
     }
 
     @Override
-    public IAST makeIntegerAST(IType aIntType, int aValueOf) {
+    public IAST makeUnaryAST(IType aIntType, int aValueOf) {
         Type intType = (Type)aIntType;
         VoltXMLElement answer = new VoltXMLElement("value");
         answer.withValue("id", newId());
@@ -34,29 +34,22 @@ public class VoltParserFactory extends ParserFactory {
     }
 
     @Override
-    public IAST makeIntegerAST(IOperator aOp,
-                               Neutrino aLeftoperand,
-                               Neutrino aRightoperand) {
-        VoltXMLElement answer = new VoltXMLElement("operation");
+    public IAST makeUnaryAST(IType aIntType, boolean aValueOf) {
+        Type intType = (Type)aIntType;
+        VoltXMLElement answer = new VoltXMLElement("value");
         answer.withValue("id", newId());
-        answer.withValue("optype", aOp.getOperation());
-        answer.children.add((VoltXMLElement)aLeftoperand.getAST());
-        answer.children.add((VoltXMLElement)aRightoperand.getAST());
-        return answer;
+        answer.withValue("value", Boolean.toString(aValueOf));
+        answer.withValue("valuetype", intType.getName().toUpperCase());
+        return null;
     }
 
     @Override
-    public IAST makeBooleanAST(boolean aB) {
-        unimplementedOperation("makeBooleanAST(unary)");
-        return null;
-    }
-    @Override
-    public IAST makeBooleanAST(IOperator aOp,
-                               Neutrino aLeftoperand,
-                               Neutrino aRightoperand) {
+    public IAST makeBinaryAST(IOperator aOp,
+                              Neutrino aLeftoperand,
+                              Neutrino aRightoperand) {
         VoltXMLElement answer = new VoltXMLElement("operation");
-        answer.withValue("id", newId());
-        answer.withValue("optype", aOp.getOperation());
+        answer.withValue("id", newId())
+              .withValue("optype", aOp.getOperation());
         answer.children.add((VoltXMLElement)aLeftoperand.getAST());
         answer.children.add((VoltXMLElement)aRightoperand.getAST());
         return answer;
