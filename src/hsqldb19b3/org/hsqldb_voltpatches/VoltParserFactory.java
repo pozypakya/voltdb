@@ -30,7 +30,7 @@ public class VoltParserFactory extends ParserFactory {
         answer.withValue("id", newId());
         answer.withValue("value", Integer.toString(aValueOf));
         answer.withValue("valuetype", intType.getName().toUpperCase());
-        return null;
+        return answer;
     }
 
     @Override
@@ -40,7 +40,7 @@ public class VoltParserFactory extends ParserFactory {
         answer.withValue("id", newId());
         answer.withValue("value", Boolean.toString(aValueOf));
         answer.withValue("valuetype", intType.getName().toUpperCase());
-        return null;
+        return answer;
     }
 
     @Override
@@ -140,11 +140,11 @@ public class VoltParserFactory extends ParserFactory {
                               String aTableAlias,
                               String aColumnName) {
         VoltXMLElement answer = new VoltXMLElement("columnref");
-        answer.withValue("alias", aColumnName)
-              .withValue("column", aColumnName)
+        answer.withValue("alias", aColumnName.toUpperCase())
+              .withValue("column", aColumnName.toUpperCase())
               .withValue("id", newId())
-              .withValue("table", aRealTableName)
-              .withValue("tableAlias", aTableAlias);
+              .withValue("table", aRealTableName.toUpperCase())
+              .withValue("tableAlias", aTableAlias.toUpperCase());
         return answer;
     }
 }
