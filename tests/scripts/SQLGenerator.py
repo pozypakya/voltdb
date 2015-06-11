@@ -850,7 +850,10 @@ class SQLGenerator:
             self.__max_statements_per_pattern = max(self.__max_statements_per_pattern, results)
 
     def min_statements_per_pattern(self):
-        return self.__min_statements_per_pattern
+        if (self.__min_statements_per_pattern == sys.maxint):  # initial value
+            return -1  # indicates no patterns have been used to generate SQL statements
+        else:
+            return self.__min_statements_per_pattern
 
     def max_statements_per_pattern(self):
         return self.__max_statements_per_pattern
