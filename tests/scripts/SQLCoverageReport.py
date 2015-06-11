@@ -406,7 +406,7 @@ def createSummaryInHTML(count, failures, misses, voltdb_npes, hsqldb_npes, extra
     if (failures == 0):
         fail_ps = "0.00%"
     else:
-        percent = (failures/float(min(count, 1))) * 100
+        percent = (failures/float(max(count, 1))) * 100
         fail_ps = str("{0:.2f}".format(percent)) + "%"
         if (percent > 50):
             fail_color = " bgcolor=#FFFF00" # yellow
@@ -416,7 +416,7 @@ def createSummaryInHTML(count, failures, misses, voltdb_npes, hsqldb_npes, extra
         cell4misCnt = "<td align=right>0</td>"
     else:
         color = "#FF0000" # red
-        mis_ps = "{0:.2f}".format((misses/float(min(count, 1))) * 100)
+        mis_ps = "{0:.2f}".format((misses/float(max(count, 1))) * 100)
         cell4misPct = "<td align=right bgcolor=" + color + ">" + mis_ps + "%</td>"
         cell4misCnt = "<td align=right bgcolor=" + color + ">" + str(misses) + "</td>"
     misRow = cell4misCnt + cell4misPct
@@ -430,10 +430,10 @@ def createSummaryInHTML(count, failures, misses, voltdb_npes, hsqldb_npes, extra
     else:
         npeRow = "<td align=right>0</td>"
 
-    if (passed == count):
+    if (passed == count and passed > 0):
         passed_ps = "100.00%"
     else:
-        passed_ps = str("{0:.2f}".format((passed/float(min(count, 1))) * 100)) + "%"
+        passed_ps = str("{0:.2f}".format((passed/float(max(count, 1))) * 100)) + "%"
     stats = """
 <td align=right>%d</td>
 <td align=right>%s</td>
