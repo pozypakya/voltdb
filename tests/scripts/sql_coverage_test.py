@@ -74,7 +74,7 @@ def print_seconds(seconds=0, message_end="", message_begin="Total   time: ",
     purposes.
     """
 
-    time_msg = minutes_colon_seconds(seconds) + " (" + str(seconds) + " seconds)"
+    time_msg = minutes_colon_seconds(seconds) + " ({0:.6f} seconds)".format(seconds)
     if (include_current_time):
         time_msg += " [at " + str(time.time()) + "]"
 
@@ -328,9 +328,9 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     total_hsqldb_time += hsqldb_time
 
     someStats = (get_numerical_html_table_element(min_statements_per_pattern, strong_warn_below=1) +
-                 get_numerical_html_table_element(max_statements_per_pattern, warn_above=100000) +
-                 get_numerical_html_table_element(num_inserts,  warn_below=4, warn_above=1000, strong_warn_below=1) +
-                 get_numerical_html_table_element(num_patterns, warn_above=10000) +
+                 get_numerical_html_table_element(max_statements_per_pattern, strong_warn_below=1, warn_above=100000) +
+                 get_numerical_html_table_element(num_inserts,  warn_below=4, strong_warn_below=1, warn_above=1000) +
+                 get_numerical_html_table_element(num_patterns, warn_below=4, strong_warn_below=1, warn_above=10000) +
                  get_time_html_table_element(gensql_time) +
                  get_time_html_table_element(voltdb_time) +
                  get_time_html_table_element(hsqldb_time) )
@@ -348,10 +348,11 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
         print >> sys.stderr, "  hsql_path: %s" % (hsql_path)
         sys.stderr.flush()
         num_crashes += 1
-        errorStats = (get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
-                      get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
-                      get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
-                      get_numerical_html_table_element(0, warn_below=1) + get_numerical_html_table_element(0, warn_below=1) +
+        gray_zero_html_table_element = get_numerical_html_table_element(0, use_gray=True)
+        errorStats = (gray_zero_html_table_element + gray_zero_html_table_element +
+                      gray_zero_html_table_element + gray_zero_html_table_element +
+                      gray_zero_html_table_element + gray_zero_html_table_element +
+                      gray_zero_html_table_element + gray_zero_html_table_element +
                       get_numerical_html_table_element(num_crashes, error_above=0) + someStats + '</tr>' )
         success = {"keyStats": errorStats, "mis": -1}
 
@@ -360,6 +361,7 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     compar_time = print_elapsed_seconds("for comparing DB results (" + suite_name + ")")
     total_compar_time += compar_time
     suite_secs = print_elapsed_seconds("for run_config of '" + suite_name + "'", time0, "Sub-tot time: ")
+    sys.stdout.flush()
 
     # Accumulate the total number of Valid, Invalid, Mismatched & Total statements
     global total_statements
@@ -417,9 +419,11 @@ def run_config(suite_name, config, basedir, output_dir, random_seed, report_all,
     return success
 
 def get_html_table_element_color(value, error_below, strong_warn_below, warn_below,
-                                 error_above, strong_warn_above, warn_above):
+                                 error_above, strong_warn_above, warn_above, use_gray):
     color = ''
-    if (value < error_below or value > error_above):
+    if (use_gray):
+        color = ' bgcolor=#D3D3D3'  # gray
+    elif (value < error_below or value > error_above):
         color = ' bgcolor=#FF0000'  # red
     elif (value < strong_warn_below or value > strong_warn_above):
         color = ' bgcolor=#FFA500'  # orange
@@ -427,18 +431,20 @@ def get_html_table_element_color(value, error_below, strong_warn_below, warn_bel
         color = ' bgcolor=#FFFF00'  # yellow
     return color
 
-def get_numerical_html_table_element(value, error_below=0, strong_warn_below=0, warn_below=0,
-                                     error_above=1000000000, strong_warn_above=1000000, warn_above=100000):
+def get_numerical_html_table_element(value, error_below=-1, strong_warn_below=0, warn_below=0,
+                                     error_above=1000000000, strong_warn_above=1000000, warn_above=100000,
+                                     use_gray=False):
     return ('<td align=right%s>%d</td>' %
             (get_html_table_element_color(value, error_below, strong_warn_below, warn_below,
-                                          error_above, strong_warn_above, warn_above),
+                                          error_above, strong_warn_above, warn_above, use_gray),
              value) )
 
 def get_time_html_table_element(seconds, error_below=0, strong_warn_below=0, warn_below=0,
-                                error_above=21600, strong_warn_above=3600, warn_above=600):
+                                error_above=21600, strong_warn_above=3600, warn_above=600,  # 6 hours, 1 hour, 10 minutes
+                                use_gray=False):
     return ('<td align=right%s>%s</td>' %
             (get_html_table_element_color(seconds, error_below, strong_warn_below, warn_below,
-                                          error_above, strong_warn_above, warn_above),
+                                          error_above, strong_warn_above, warn_above, use_gray),
              minutes_colon_seconds(seconds)) )
 
 def get_voltcompiler(basedir):
