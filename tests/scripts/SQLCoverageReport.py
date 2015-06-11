@@ -398,42 +398,50 @@ def getTopSummaryLines(includeAll=True):
 def createSummaryInHTML(count, failures, misses, voltdb_npes, hsqldb_npes, extra_stats, seed):
     passed = count - (failures + misses)
     passed_ps = fail_ps = cell4misPct = cell4misCnt = color = None
-    if(failures == 0):
+    count_color = fail_color = ""
+
+    if (count < 1):
+        count_color = " bgcolor=#FFA500" # orange
+
+    if (failures == 0):
         fail_ps = "0.00%"
     else:
-        fail_ps = str("{0:.2f}".format((failures/float(count)) * 100)) + "%"
+        percent = (failures/float(min(count, 1))) * 100
+        fail_ps = str("{0:.2f}".format(percent)) + "%"
+        if (percent > 50):
+            fail_color = " bgcolor=#FFFF00" # yellow
 
-    if(misses == 0):
+    if (misses == 0):
         cell4misPct = "<td align=right>0.00%</td>"
         cell4misCnt = "<td align=right>0</td>"
     else:
         color = "#FF0000" # red
-        mis_ps = "{0:.2f}".format((misses/float(count)) * 100)
+        mis_ps = "{0:.2f}".format((misses/float(min(count, 1))) * 100)
         cell4misPct = "<td align=right bgcolor=" + color + ">" + mis_ps + "%</td>"
         cell4misCnt = "<td align=right bgcolor=" + color + ">" + str(misses) + "</td>"
     misRow = cell4misCnt + cell4misPct
 
-    if(voltdb_npes > 0):
+    if (voltdb_npes > 0):
         color = "#FFA500" # orange
         npeRow = "<td align=right bgcolor=" + color + ">" + str(voltdb_npes + hsqldb_npes) + "</td>"
-    elif(hsqldb_npes > 0):
+    elif (hsqldb_npes > 0):
         color = "#FFFF00" # yellow
         npeRow = "<td align=right bgcolor=" + color + ">" + str(voltdb_npes + hsqldb_npes) + "</td>"
     else:
         npeRow = "<td align=right>0</td>"
 
-    if(passed == count):
+    if (passed == count):
         passed_ps = "100.00%"
     else:
-        passed_ps = str("{0:.2f}".format((passed/float(count)) * 100)) + "%"
+        passed_ps = str("{0:.2f}".format((passed/float(min(count, 1))) * 100)) + "%"
     stats = """
 <td align=right>%d</td>
 <td align=right>%s</td>
 <td align=right>%d</td>
-<td align=right>%s</td>
-<td align=right>%d</td>
+<td align=right%s>%s</td>
+<td align=right%s>%d</td>
 %s%s%s</tr>
-""" % (passed, passed_ps, failures, fail_ps, count, misRow, npeRow, extra_stats)
+""" % (passed, passed_ps, failures, fail_color, fail_ps, count_color, count, misRow, npeRow, extra_stats)
 
     return stats
 
@@ -465,6 +473,14 @@ h2 {text-transform: uppercase}
             content += bullets(suiteName, statistics[suiteName])
     content += "<tr><td>Totals</td>%s</tr>\n</table>" % statistics["totals"]
     content += """
+<table border=0><tr><td>Key:</td></tr>
+<tr><td align=right bgcolor=#FF0000>Red</td><td>table elements indicate a test failure(s), due to a mismatch between VoltDB and HSqlDB results, or a crash.</td></tr>
+<tr><td align=right bgcolor=#FFA500>Orange</td><td>table elements indicate a strong warning, for something that should be looked into (e.g. an NPE in VoltDB,
+                                                   a pattern that generated no SQL queries, or a <i>very</i> slow test suite), but no test failures.</td></tr>
+<tr><td align=right bgcolor=#FFFF00>Yellow</td><td>table elements indicate a mild warning, for something you might want to improve (e.g. an NPE in HSqlDB,
+                                                   a pattern that generated a very large number of SQL queries, or a somewhat slow test suite).</td></tr>
+<tr><td align=right bgcolor=#D3D3D3>Gray</td><td>table elements indicate data that was not computed, due to a crash.</td></tr>
+</table>
 </body>
 </html>
 """
