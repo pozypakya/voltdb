@@ -242,7 +242,7 @@ def parse_for_order_by_desc(sql, col_name):
     else:
         return False
 
-def normalize(table, sql, sort_nulls=SortNulls.never):
+def normalize(table, sql, sort_nulls=SortNulls.lowest):
     """Normalizes the result tuples of ORDER BY statements.
     """
     normalize_values(table.tuples, table.columns)
