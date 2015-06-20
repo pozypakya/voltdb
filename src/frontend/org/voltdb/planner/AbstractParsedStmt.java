@@ -98,7 +98,7 @@ public abstract class AbstractParsedStmt {
 
     // This list is used to identify the order of the table aliases returned by
     // the parser for possible use as a default join order.
-    protected ArrayList<String> m_tableAliasList = new ArrayList<String>();
+    protected ArrayList<String> m_tableAliasListAsJoinOrder = new ArrayList<String>();
 
     protected final String[] m_paramValues;
     public final Database m_db;
@@ -689,12 +689,12 @@ public abstract class AbstractParsedStmt {
         if (!(subquery instanceof ParsedSelectStmt)) {
             return false;
         }
-        // Must not have OFFSET set
+        // Must not have OFFSET or LIMIT set
         // EXISTS (select * from T where T.X = parent.X order by T.Y offset 10 limit 5)
         //      seems to require 11 matches
         // parent.X IN (select T.X from T order by T.Y offset 10 limit 5)
         //      seems to require 1 match that has exactly 10-14 rows (matching or not) with lesser or equal values of Y.
-        return ! ((ParsedSelectStmt) subquery).hasOffset();
+        return ! ((ParsedSelectStmt) subquery).hasLimitOrOffset();
     }
 
     /**
@@ -930,7 +930,7 @@ public abstract class AbstractParsedStmt {
             tableAlias = tableName;
         }
         // Hsql rejects name conflicts in a single query
-        m_tableAliasList.add(tableAlias);
+        m_tableAliasListAsJoinOrder.add(tableAlias);
 
         VoltXMLElement subqueryElement = null;
         // Possible sub-query
@@ -1085,8 +1085,15 @@ public abstract class AbstractParsedStmt {
     // statements each of which may or may not use each parameter.
     // The list is required later at the top-level statement for
     // proper cataloging, so promote it here to each parent union.
+    //
+    // Similarly, as we build the parsed statement representation of a
+    // a union, we need to promote "parameter TVEs" appearing in
+    // leaf select statements.  Parameter TVEs are column references
+    // in tables from an outer query.  These are represented as parameters
+    // in the EE.
     protected void promoteUnionParametersFromChild(AbstractParsedStmt childStmt) {
         m_paramsByIndex.putAll(childStmt.m_paramsByIndex);
+        m_parameterTveMap.putAll(childStmt.m_parameterTveMap);
     }
 
     /**
