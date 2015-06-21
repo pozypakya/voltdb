@@ -55,7 +55,7 @@
 <fileset id="voltpro.src.dir" file="." excludes="**"/>
 
 <!-- import the pro build.xml if it exists and is requested -->
-<import file="${voltpro}/build.xml" optional="true"/>
+<import file="${env.VOLTPRO}/build.xml" optional="true"/>
 
 <property name='base.dir'                    location='.' />
 <property name='build.dir'                   location='obj/${build}' />
@@ -69,6 +69,23 @@
 <property name='dist.examples.dir'           location='${dist.dir}/examples' />
 <property name='doc.dir'                     location='doc' />
 <property name='src.gpl.dir'                 location='src/frontend' />
+<!-- SQLParser Properties -->
+<property name='src.sqlparser.syntax.dir'    location='src/voltsqlparser/syntax' />
+<property name='pkg.sqlparser.syntax.dir'    location='${src.sqlparser.syntax.dir}/org/voltdb/sqlparser/syntax' />
+<property name='src.sqlparser.semantics.dir' location='src/voltsqlparser/semantics' />
+<property name='pkg.sqlparser.semantics.dir' location='${src.sqlparser.semantics.dir}/org/voltdb/sqlparser/semantics' />
+
+<!-- Antlr4 properties -->
+<property name='antlr.version'               value='4.5' />
+<property name='generated.dir'               location='target' />
+<property name='src.generated.dir'           location='${generated.dir}/generated-sources'
+<property name='src.antlr.generated.dir'     location='${src.generated.dir}/antlr4' />
+<property name='pkg.antlr.generated.dir'     location='${src.antlr.generated.dir}/org/voltdb/sqlparser/syntax/grammar' />
+<property name='lib.antlr.dir'               location='lib' />
+<property name='antlr.runtime.name'          location='${lib.antlr.dir}/antlr-runtime-${antlr.version}.jar' />
+<property name='antlr.complete.name'         location='${lib.antlr.dir}/antlr-${antlr.version}-complete.jar' />
+<property name='antlr4.touch'                location='${src.antlr.generated.dir}/antrl.touch' />
+
 <property name='src.hsqldb.dir'              location='src/hsqldb19b3' />
 <property name='src.test.dir'                location='tests/frontend' />
 <property name='src.testproc.dir'            location='tests/testprocs' />
@@ -949,6 +966,38 @@ JAVA COMPILATION
 <target name="compile" depends="catalog, dbbpool_gen, project_gen, deployment_gen, compile_core, compile_pro"
         description="Compile all Java source and test classes"/>
 
+<!--
+***************************************
+Antlr4 Compilation Macro
+***************************************
+-->
+<target name="check_for_sql_grammar">
+    <uptodate property="sqlGrammarIsUpToDate"
+	      targetfile="${antlr4.touch}"
+	      srcfile="${pkg.sqlparser.syntax.dir}/SQLParser.g4" />
+</target>    
+<target name="compile_sql_grammar"
+	depends="check_for_sql_grammar"
+	description="Compile the VoltDB SQL Parser using ANTLR4."
+	unless="sqlGrammarIsUpToDate" > 
+    <path id="antlr.class.path">
+	<pathelement location="${antlr.complete.name}" />
+    </path>
+    <java classname="org.antlr.v4.Tool" fork="true" failonerror="true"
+	  dir="${pkg.sqlparser.syntax.dir}">
+        <arg value="-o"/>
+        <arg value="${pkg.antlr.generated.dir}"/>
+	<arg value="-listener" />
+	<arg value="-no-visitor" />
+	<arg value="-encoding" />
+	<arg value="UTF-8" />
+        <classpath>
+            <path refid="antlr.class.path"/>
+        </classpath>
+    </java>
+    <touch file="${antlr4.touch}" mkdirs="true"/>
+</target>
+
 <target name="compile_client">
     <ant antfile="build-client.xml" target="compile" inheritAll="false">
         <property name="build" value="${build}"/>
@@ -1044,6 +1093,10 @@ JAVA COMPILATION
     </copy>
 
     <!-- compile the individual source directories -->
+    <!-- sqlparser syntax -->
+    <invoke-javac srcdir="${src.sqlparser.syntax.dir}"/>
+    <!-- sqlparser semantics -->
+    <invoke-javac srcdir="${src.sqlparser.semantics.dir}"/>
     <!-- hsql -->
     <invoke-javac srcdir="${src.hsqldb.dir}"/>
     <!-- voltcore and third-party java (including our zookeeper -->
@@ -2249,6 +2302,7 @@ PROJECT FILE SCHEMA CODE GENERATION
         description="Remove other generated source files.">
     <delete file="${src.ee.dir}/org_voltdb_jni_ExecutionEngine.h" />
     <delete file="${src.ee.dir}/org_voltcore_utils_DBBPool.h" />
+    <delete dir="${generated.dir}" />
 </target>
 
 <!--

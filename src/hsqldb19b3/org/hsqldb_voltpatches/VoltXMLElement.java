@@ -27,7 +27,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
-import org.voltdb.sqlparser.symtab.IAST;
+import org.voltdb.sqlparser.semantics.symtab.IAST;
 
 /**
  * Used to fake generate XML without actually generating the text and parsing it.

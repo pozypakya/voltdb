@@ -1,12 +1,10 @@
 package org.hsqldb_voltpatches;
 
-import org.voltdb.sqlparser.grammar.DDLListener;
-import org.voltdb.sqlparser.grammar.ErrorMessage;
-import org.voltdb.sqlparser.grammar.IInsertStatement;
-import org.voltdb.sqlparser.grammar.ISelectQuery;
-import org.voltdb.sqlparser.grammar.InsertStatement;
-import org.voltdb.sqlparser.symtab.CatalogAdapter;
-import org.voltdb.sqlparser.symtab.ParserFactory;
+import org.voltdb.sqlparser.semantics.grammar.InsertStatement;
+import org.voltdb.sqlparser.semantics.symtab.ParserFactory;
+import org.voltdb.sqlparser.syntax.grammar.DDLListener;
+import org.voltdb.sqlparser.syntax.grammar.IInsertStatement;
+import org.voltdb.sqlparser.syntax.grammar.ISelectQuery;
 
 public class VoltDDLListener extends DDLListener {
 

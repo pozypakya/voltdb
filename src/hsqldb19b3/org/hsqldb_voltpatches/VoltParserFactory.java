@@ -2,16 +2,16 @@ package org.hsqldb_voltpatches;
 
 import java.util.List;
 
-import org.voltdb.sqlparser.grammar.ICatalog;
-import org.voltdb.sqlparser.grammar.IOperator;
-import org.voltdb.sqlparser.grammar.Projection;
-import org.voltdb.sqlparser.symtab.IAST;
-import org.voltdb.sqlparser.symtab.ISymbolTable;
-import org.voltdb.sqlparser.symtab.IType;
-import org.voltdb.sqlparser.symtab.Neutrino;
-import org.voltdb.sqlparser.symtab.ParserFactory;
-import org.voltdb.sqlparser.symtab.SymbolTable;
-import org.voltdb.sqlparser.symtab.Type;
+import org.voltdb.sqlparser.semantics.grammar.Projection;
+import org.voltdb.sqlparser.semantics.symtab.IAST;
+import org.voltdb.sqlparser.semantics.symtab.Neutrino;
+import org.voltdb.sqlparser.semantics.symtab.ParserFactory;
+import org.voltdb.sqlparser.semantics.symtab.SymbolTable;
+import org.voltdb.sqlparser.semantics.symtab.Type;
+import org.voltdb.sqlparser.syntax.grammar.ICatalog;
+import org.voltdb.sqlparser.syntax.grammar.IOperator;
+import org.voltdb.sqlparser.syntax.symtab.ISymbolTable;
+import org.voltdb.sqlparser.syntax.symtab.IType;
 
 public class VoltParserFactory extends ParserFactory {
     int m_id = 1;

@@ -19,7 +19,6 @@ package org.hsqldb_voltpatches;
 
 import java.io.IOException;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
@@ -31,14 +30,9 @@ import org.hsqldb_voltpatches.lib.HashMappedList;
 import org.hsqldb_voltpatches.persist.HsqlProperties;
 import org.hsqldb_voltpatches.result.Result;
 import org.voltcore.logging.VoltLogger;
-import org.voltdb.sqlparser.SQLParserDriver;
-import org.voltdb.sqlparser.grammar.DDLListener;
-import org.voltdb.sqlparser.grammar.IInsertStatement;
-import org.voltdb.sqlparser.grammar.ISelectQuery;
-import org.voltdb.sqlparser.grammar.InsertStatement;
-import org.voltdb.sqlparser.grammar.SelectQuery;
-import org.voltdb.sqlparser.symtab.CatalogAdapter;
-import org.voltdb.sqlparser.symtab.SymbolTable;
+import org.voltdb.sqlparser.semantics.symtab.CatalogAdapter;
+import org.voltdb.sqlparser.semantics.symtab.Column;
+import org.voltdb.sqlparser.syntax.SQLParserDriver;
 
 /**
  * This class is built to create a single in-memory database
@@ -388,7 +382,7 @@ public class HSQLInterface {
             if ((aTableName != null) && (!aTableName.equalsIgnoreCase(tblName))) {
                 continue;
             }
-            org.voltdb.sqlparser.symtab.Table table = adapter.getTableByName(tblName);
+            org.voltdb.sqlparser.semantics.symtab.Table table = adapter.getTableByName(tblName);
             VoltXMLElement tableXML = new VoltXMLElement("table");
             tableXML.withValue("name", table.getName().toUpperCase());
             xml.children.add(tableXML);
@@ -397,7 +391,7 @@ public class HSQLInterface {
             tableXML.children.add(columnsXML);
             int colidx = 0;
             for (String colName : table.getColumnNames()) {
-                org.voltdb.sqlparser.symtab.Column col = table.getColumnByName(colName);
+                Column col = table.getColumnByName(colName);
                 VoltXMLElement colXML = new VoltXMLElement("column");
                 colXML.withValue("name", colName.toUpperCase())
                       .withValue("index", Integer.toString(colidx))

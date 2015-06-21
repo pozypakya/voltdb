@@ -5,7 +5,6 @@ import junit.framework.TestCase;
 import org.hsqldb_voltpatches.HSQLInterface;
 import org.hsqldb_voltpatches.HSQLInterface.HSQLParseException;
 import org.hsqldb_voltpatches.VoltXMLElement;
-import org.voltdb.sqlparser.symtab.CatalogAdapter;
 
 public class TestVoltSQLParser extends TestCase {
 
