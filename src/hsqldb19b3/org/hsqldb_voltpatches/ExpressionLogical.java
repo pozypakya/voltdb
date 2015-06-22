@@ -459,12 +459,13 @@ public class ExpressionLogical extends Expression {
             sb.append(nodes[LEFT].describe(session, blanks + 1));
             sb.append(']');
         }
-
-        if (nodes[RIGHT] != null) {
+        // A VoltDB extension to fix a crash.
+        if (nodes.length > 1 && nodes[RIGHT] != null) {
             sb.append(" arg2=[");
             sb.append(nodes[RIGHT].describe(session, blanks + 1));
             sb.append(']');
         }
+        // End of VoltDB extension
 
         return sb.toString();
     }

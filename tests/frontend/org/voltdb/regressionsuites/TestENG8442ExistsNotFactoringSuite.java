@@ -56,10 +56,12 @@ public class TestENG8442ExistsNotFactoringSuite extends RegressionSuite {
         assertEquals(ClientResponse.SUCCESS, cr.getStatus());
         int rowCount = 0;
         VoltTable tbl = cr.getResults()[0];
+        System.out.printf("Results:\n");
         while (tbl.advanceRow()) {
             rowCount += 1;
             System.out.printf("Radius %e\n", tbl.getDouble(3));
         }
+        System.out.printf("Done.\n");
         assertEquals("Expected an empty result.", 0, rowCount);
     }
     /**
